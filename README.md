@@ -4,12 +4,16 @@
 
 ## **What is WoWpadX?**
 
+
+<img width="408" height="720" alt="Image" src="https://github.com/user-attachments/assets/cd98f59d-6054-4377-b80a-346f03a6adf9" />
+<img width="395" height="710" alt="Image" src="https://github.com/user-attachments/assets/33b8a4d0-5b43-4a8b-83ad-e2d875a6eba8" />
+
 WoWpadX is a ground-up rewrite of the original controller mapping concepts found in [WoWmapper](https://github.com/topher-au/WoWmapper) and [WoWmapperX](https://github.com/leoaviana/WoWmapperX).  
 It handles input from modern controllers via **SDL3** and converts them into precise button presses and mouse movements. These are then processed by [ConsolePortLK](https://github.com/leoaviana/ConsolePortLK) to provide a native console-like experience in World of Warcraft. WoWpadX includes advanced features such as rumble feedback, automatic cursor centering, and input assistance utilities aiming to make controller gameplay efficient and responsive in the World of Warcraft environment.
 
 ### **What is the difference between WoWpadX and WoWmapperX?**
 
-WoWpadX is a complete architectural rebuild designed for maximum performance and cross-platform compatibility:
+WoWpadX is a complete architectural rebuild designed aiming better performance and compatibility:
 
 1. **Native C++ Codebase:** Built using C++ rather than C\#/.NET, eliminating runtime dependencies and (hopefully) increasing it's overall compatibility and performance.
 2. **SDL3 Backend:** Leverages the latest SDL3 for universal controller support (DualSense, Xbox Series, Switch Pro, etc.).  
