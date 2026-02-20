@@ -21,10 +21,10 @@
 #include "DevicesController.h"
 #include "MemoryReadingController.h"
 #include "TrayManager.h" 
-#include <shellscalingapi.h> // Add this include
+#include <shellscalingapi.h> 
 #pragma comment(lib, "Shcore.lib")
 
-const QString APP_VERSION = MainPageController::appVersion();
+const QString APP_VERSION = "1.0.0";
 const QString IPC_SERVER_NAME = "WoWpadX_IPC_Server";
 std::atomic<bool> headlessRunning(true);
 
@@ -181,6 +181,7 @@ int main(int argc, char* argv[])
 #endif
 
     QGuiApplication app(argc, argv);
+    app.setApplicationVersion(APP_VERSION);
     app.setWindowIcon(QIcon(":/Resources/wowpadx.png"));
 
     // GUI IPC Server (so GUI mode can also be stopped via --stop)

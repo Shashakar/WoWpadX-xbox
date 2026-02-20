@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QCoreApplication>
 
 class MainPageController : public QObject
 {
@@ -49,7 +50,7 @@ public:
 
     QString donateButtonSource() const;
 
-    static QString appVersion() { return "1.0.0"; }
+    static QString appVersion() { return QCoreApplication::applicationVersion(); }
 
     QString getAppVersion() const { return MainPageController::appVersion(); }
 
