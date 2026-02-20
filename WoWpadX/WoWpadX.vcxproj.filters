@@ -1,0 +1,208 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>qml;cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>qrc;rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Form Files">
+      <UniqueIdentifier>{99349809-55BA-4b9d-BF79-8FDBB0286EB3}</UniqueIdentifier>
+      <Extensions>ui</Extensions>
+    </Filter>
+    <Filter Include="Translation Files">
+      <UniqueIdentifier>{639EADAA-A684-42e4-A9AD-28FC9BCB8F7C}</UniqueIdentifier>
+      <Extensions>ts</Extensions>
+    </Filter>
+    <Filter Include="QML">
+      <UniqueIdentifier>{3d93b04c-6373-449a-b30d-c774a7e017c9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="QML\MainWindow">
+      <UniqueIdentifier>{a97f1557-afa2-471c-92c9-75526c9bddc3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="QML\Settings">
+      <UniqueIdentifier>{154a91ec-18a1-4875-9396-4896989c5702}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Process">
+      <UniqueIdentifier>{2c9a01ec-7d1d-4e5e-9e83-f5f0d282ba76}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Process">
+      <UniqueIdentifier>{4c56d114-e152-46d4-9cd8-ca882c347b72}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Keybinds">
+      <UniqueIdentifier>{5d70dc3e-e1da-4c05-970f-befb550d1278}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Keybinds">
+      <UniqueIdentifier>{a1fa98dd-3b71-49bd-a2e8-130b329257da}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Input">
+      <UniqueIdentifier>{69988ea5-13d2-4a77-9bd7-c4375a361ce1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Input">
+      <UniqueIdentifier>{9cbf6e59-7d2c-48aa-bfee-312c21a03df6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Overlay">
+      <UniqueIdentifier>{774c6083-518d-4d10-8b94-6b3d1cb82b7f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Overlay">
+      <UniqueIdentifier>{24ef0186-630a-4993-8d40-dd1e050a0a6e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Controllers">
+      <UniqueIdentifier>{9fa53989-69e8-4245-ac3a-0e8aa993d552}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Controllers">
+      <UniqueIdentifier>{17d39cbb-277a-4a4f-8ee5-393fe725b7c9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <QtRcc Include="qml.qrc">
+      <Filter>Resource Files</Filter>
+    </QtRcc>
+    <ClCompile Include="AppSettings.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Log.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WoWReader.cpp">
+      <Filter>Source Files\Process</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessManager.cpp">
+      <Filter>Source Files\Process</Filter>
+    </ClCompile>
+    <ClCompile Include="BindManager.cpp">
+      <Filter>Source Files\Keybinds</Filter>
+    </ClCompile>
+    <ClCompile Include="InputMapper.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="OverlayClient.cpp">
+      <Filter>Source Files\Overlay</Filter>
+    </ClCompile>
+    <ClCompile Include="OverlayLoader.cpp">
+      <Filter>Source Files\Overlay</Filter>
+    </ClCompile>
+    <ClCompile Include="ControllerManager.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="MainPageController.cpp">
+      <Filter>Source Files\Controllers</Filter>
+    </ClCompile>
+    <ClCompile Include="DevicesController.cpp">
+      <Filter>Source Files\Controllers</Filter>
+    </ClCompile>
+    <ClCompile Include="MemoryReadingController.cpp">
+      <Filter>Source Files\Controllers</Filter>
+    </ClCompile>
+    <ClCompile Include="TrayManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="QML\main.qml">
+      <Filter>QML\MainWindow</Filter>
+    </None>
+    <None Include="QML\MainPage.qml">
+      <Filter>QML\MainWindow</Filter>
+    </None>
+    <None Include="QML\TitleBar.qml">
+      <Filter>QML\MainWindow</Filter>
+    </None>
+    <None Include="QML\SettingsPanel.qml">
+      <Filter>QML\Settings</Filter>
+    </None>
+    <None Include="QML\SettingsWoWmapper.qml">
+      <Filter>QML\Settings</Filter>
+    </None>
+    <None Include="QML\SettingsDevices.qml">
+      <Filter>QML\Settings</Filter>
+    </None>
+    <None Include="QML\SettingsKeybindings.qml">
+      <Filter>QML\Settings</Filter>
+    </None>
+    <None Include="QML\SettingsAnalog.qml">
+      <Filter>QML\Settings</Filter>
+    </None>
+    <None Include="QML\SettingsOverlay.qml">
+      <Filter>QML\Settings</Filter>
+    </None>
+    <None Include="QML\SettingsMemoryReading.qml">
+      <Filter>QML\Settings</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Log.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="WoWReader.h">
+      <Filter>Header Files\Process</Filter>
+    </ClInclude>
+    <ClInclude Include="KeybindDefaults.h">
+      <Filter>Header Files\Keybinds</Filter>
+    </ClInclude>
+    <ClInclude Include="InputMapper.h">
+      <Filter>Header Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="OverlayClient.h">
+      <Filter>Header Files\Overlay</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessManager.h">
+      <Filter>Header Files\Process</Filter>
+    </ClInclude>
+    <ClInclude Include="OverlayLoader.h">
+      <Filter>Header Files\Overlay</Filter>
+    </ClInclude>
+    <ClInclude Include="Gamepad\gamepad.h">
+      <Filter>Header Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <QtMoc Include="AppSettings.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="BindManager.h">
+      <Filter>Header Files\Keybinds</Filter>
+    </QtMoc>
+    <QtMoc Include="DevicesController.h">
+      <Filter>Header Files\Controllers</Filter>
+    </QtMoc>
+    <QtMoc Include="MemoryReadingController.h">
+      <Filter>Header Files\Controllers</Filter>
+    </QtMoc>
+    <QtMoc Include="ControllerManager.h">
+      <Filter>Header Files\Input</Filter>
+    </QtMoc>
+    <QtMoc Include="MainPageController.h">
+      <Filter>Header Files\Controllers</Filter>
+    </QtMoc>
+    <QtMoc Include="TrayManager.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="resources.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="icon1.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="Resources\wowpadx.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+  </ItemGroup>
+</Project>
