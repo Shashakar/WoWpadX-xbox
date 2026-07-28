@@ -18,8 +18,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v2
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -45,28 +47,34 @@ jobs:
 
           "SDL3_ROOT=$sdlRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Configure WoWpadX
+        shell: pwsh
+        run: |
+          cmake `
+            -S (Join-Path $env:GITHUB_WORKSPACE "WoWpadX") `
+            -B (Join-Path $env:GITHUB_WORKSPACE "build") `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR" `
+            "-DSDL3_ROOT=$env:SDL3_ROOT"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "CMake configuration failed with exit code $LASTEXITCODE"
+          }
+
       - name: Build WoWpadX
         shell: pwsh
         run: |
-          $project = Join-Path $env:GITHUB_WORKSPACE "WoWpadX\WoWpadX.vcxproj"
-
-          & msbuild $project `
-            /m `
-            /t:Build `
-            /p:Configuration=Release `
-            /p:Platform=x64 `
-            "/p:SDL3Root=$env:SDL3_ROOT" `
-            "/p:QtInstall=$env:QT_ROOT_DIR"
+          cmake --build (Join-Path $env:GITHUB_WORKSPACE "build") --parallel
 
           if ($LASTEXITCODE -ne 0) {
-            throw "MSBuild failed with exit code $LASTEXITCODE"
+            throw "CMake build failed with exit code $LASTEXITCODE"
           }
 
       - name: Stage portable build
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter WoWpadX.exe |
-            Where-Object { $_.FullName -notmatch "Overlay" } |
+          $exe = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "build") -Recurse -Filter WoWpadX.exe |
             Select-Object -First 1
 
           if (-not $exe) {
@@ -75,7 +83,7 @@ jobs:
 
           $stage = Join-Path $env:GITHUB_WORKSPACE "artifact"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          Copy-Item -Path (Join-Path $exe.Directory.FullName "*") -Destination $stage -Recurse -Force
+          Copy-Item -Path $exe.FullName -Destination (Join-Path $stage "WoWpadX.exe") -Force
 
           $sdlDll = Join-Path $env:SDL3_ROOT "lib\x64\SDL3.dll"
           Copy-Item -Path $sdlDll -Destination (Join-Path $stage "SDL3.dll") -Force
