@@ -61,6 +61,7 @@ qt_add_executable(
     OverlayLoader.h
     ProcessManager.cpp
     ProcessManager.h
+    RawInputDiagnostics.cpp
     TrayManager.cpp
     TrayManager.h
     WoWReader.cpp
