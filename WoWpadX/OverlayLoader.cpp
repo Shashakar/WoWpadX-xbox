@@ -4,7 +4,7 @@
 #include "OverlayLoader.h"
 #include <thread>
 #include <qstring.h>
-#include <Log.h>
+#include "Log.h"
 #include <qfileinfo.h>
 #include <qdir.h>
 #include <QCoreApplication>
