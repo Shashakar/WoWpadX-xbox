@@ -44,6 +44,8 @@ qt_add_executable(
     ControllerManager.h
     DevicesController.cpp
     DevicesController.h
+    InputDiagnostics.cpp
+    InputDiagnostics.h
     InputMapper.cpp
     InputMapper.h
     Log.cpp
