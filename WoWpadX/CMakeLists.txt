@@ -62,7 +62,7 @@ qt_add_executable(
     OverlayLoader.h
     ProcessManager.cpp
     ProcessManager.h
-    RawInputDiagnostics.cpp
+    RawInputGamepad.cpp
     RawInputGamepad.h
     RawInputHidIncludes.h
     TrayManager.cpp
