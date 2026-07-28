@@ -71,24 +71,32 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="$(QtMsBuild)\Qt.props" />
   </ImportGroup>
-  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Label="UserMacros">
+    <SDL3Root Condition="'$(SDL3Root)'==''">D:\Devel\SDL3-3.4.10</SDL3Root>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
-    <IncludePath>D:\Devel\SDL3-3.2.18\include;$(IncludePath)</IncludePath>
-    <LibraryPath>D:\Devel\SDL3-3.2.18\lib\x64;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SDL3Root)\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SDL3Root)\lib\x64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
-    <IncludePath>D:\Devel\SDL3-3.2.18\include;$(IncludePath)</IncludePath>
-    <LibraryPath>D:\Devel\SDL3-3.2.18\lib\x64;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SDL3Root)\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SDL3Root)\lib\x64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
       <AdditionalDependencies>SDL3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(SDL3Root)\lib\x64\SDL3.dll" copy /Y "$(SDL3Root)\lib\x64\SDL3.dll" "$(OutDir)SDL3.dll"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
       <AdditionalDependencies>SDL3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>if exist "$(SDL3Root)\lib\x64\SDL3.dll" copy /Y "$(SDL3Root)\lib\x64\SDL3.dll" "$(OutDir)SDL3.dll"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
     <ClCompile>
@@ -177,7 +185,7 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">
-    <Import Project="$(QtMsBuild)\qt.targets" />
+    <Import Project="$(QtMsBuild)\Qt.targets" />
   </ImportGroup>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
