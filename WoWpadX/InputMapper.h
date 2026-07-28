@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include "Gamepad/gamepad.h"
+#include "InputSource.h"
 #include <thread>
 #include <atomic>
 #include <chrono>
@@ -10,6 +11,13 @@
 #include <SDL3/SDL_gamepad.h>
 #include <cmath>
 
+// InputMapper historically called SDL directly throughout its implementation.
+// Keep that code stable while routing its Windows reads through a native
+// GameInput session that explicitly enables background input. InputSource
+// falls back to the real SDL calls whenever native GameInput is unavailable.
+#define SDL_UpdateGamepads() InputSource::UpdateGamepads()
+#define SDL_GetGamepadAxis(gamepad, axis) InputSource::GetGamepadAxis((gamepad), (axis))
+#define SDL_GetGamepadButton(gamepad, button) InputSource::GetGamepadButton((gamepad), (button))
 
 namespace InputMapper
 {
@@ -28,7 +36,7 @@ namespace InputMapper
     void Start();
     void Stop();
 
-    void UpdateGamepadButtonStates();      // Called in InputWatcher loop
+    void UpdateGamepadButtonStates();
     void HandleButtonStateChange(GamepadBinding button, bool state);
 
     void ProcessInput(GamepadBinding button, bool state);
