@@ -84,7 +84,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
-      <AdditionalDependencies>SDL3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>SDL3.lib;hid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>if exist "$(SDL3Root)\lib\x64\SDL3.dll" copy /Y "$(SDL3Root)\lib\x64\SDL3.dll" "$(OutDir)SDL3.dll"</Command>
@@ -92,7 +92,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
-      <AdditionalDependencies>SDL3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>SDL3.lib;hid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>if exist "$(SDL3Root)\lib\x64\SDL3.dll" copy /Y "$(SDL3Root)\lib\x64\SDL3.dll" "$(OutDir)SDL3.dll"</Command>
@@ -140,6 +140,7 @@
     <ClCompile Include="OverlayClient.cpp" />
     <ClCompile Include="OverlayLoader.cpp" />
     <ClCompile Include="ProcessManager.cpp" />
+    <ClCompile Include="RawInputDiagnostics.cpp" />
     <ClCompile Include="TrayManager.cpp">
       <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">input</DynamicSource>
       <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(Filename).moc</QtMocFileName>
@@ -164,6 +165,7 @@
     <QtMoc Include="DevicesController.h" />
     <ClInclude Include="InputDiagnostics.h" />
     <ClInclude Include="InputMapper.h" />
+    <ClInclude Include="InputSource.h" />
     <QtMoc Include="MainPageController.h" />
     <QtMoc Include="MemoryReadingController.h" />
     <ClInclude Include="OverlayClient.h" />
@@ -171,6 +173,7 @@
     <ClInclude Include="KeybindDefaults.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="OverlayLoader.h" />
+    <ClInclude Include="RawInputGamepad.h" />
     <QtMoc Include="TrayManager.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="WoWReader.h" />
