@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -48,6 +49,7 @@ namespace
         std::vector<HIDP_VALUE_CAPS> valueCaps;
         int selectionScore = 0;
         bool usable = false;
+        bool firstDirectStickMotionLogged = false;
     };
 
     struct SharedState
@@ -115,6 +117,14 @@ namespace
         return description;
     }
 
+    bool IsAllyController(const DeviceContext& device)
+    {
+        return device.rawInfo.dwType == RIM_TYPEHID &&
+            device.rawInfo.hid.dwVendorId == kAsusVendorId &&
+            device.rawInfo.hid.dwProductId == kAllyControllerProductId &&
+            device.path.contains("IG_00", Qt::CaseInsensitive);
+    }
+
     std::optional<SDL_GamepadButton> MapButtonUsage(USAGE usage)
     {
         switch (usage) {
@@ -178,13 +188,28 @@ namespace
         return static_cast<Sint16>(std::lround(clamped * 32767.0));
     }
 
-    bool IsReportForCap(const HIDP_VALUE_CAPS& cap, const BYTE* report, ULONG reportLength)
+    // The Xbox Ally's IG_00 report uses one meaningful byte in each two-byte
+    // HID value slot. The captured neutral report is 0x80 for each stick axis.
+    // InputMapper divides SDL-style axes by 256, so preserve the historical
+    // -128..127 scale exactly by multiplying the centered byte by 256.
+    Sint16 NormalizeAllyStickByte(BYTE value)
+    {
+        return static_cast<Sint16>((static_cast<int>(value) - 128) * 256);
+    }
+
+    bool IsReportForCap(
+        const HIDP_VALUE_CAPS& cap,
+        const BYTE* report,
+        ULONG reportLength)
     {
         return cap.ReportID == 0 ||
             (reportLength > 0 && report[0] == cap.ReportID);
     }
 
-    bool IsReportForCap(const HIDP_BUTTON_CAPS& cap, const BYTE* report, ULONG reportLength)
+    bool IsReportForCap(
+        const HIDP_BUTTON_CAPS& cap,
+        const BYTE* report,
+        ULONG reportLength)
     {
         return cap.ReportID == 0 ||
             (reportLength > 0 && report[0] == cap.ReportID);
@@ -262,7 +287,7 @@ namespace
                 continue;
 
             std::vector<USAGE> activeUsages(usageCount);
-            NTSTATUS status = HidP_GetUsages(
+            const NTSTATUS status = HidP_GetUsages(
                 HidP_Input,
                 cap.UsagePage,
                 cap.LinkCollection,
@@ -305,15 +330,19 @@ namespace
         readings[usage] = reading;
     }
 
-    void ApplyHatSwitch(const LogicalReading& reading, ParsedState& parsed)
+    void ApplyHatSwitch(
+        const LogicalReading& reading,
+        ParsedState& parsed)
     {
+        if (!reading.available)
+            return;
+
         parsed.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_UP] = true;
         parsed.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] = true;
         parsed.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_DOWN] = true;
         parsed.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_LEFT] = true;
 
-        if (!reading.available ||
-            reading.value < reading.logicalMin ||
+        if (reading.value < reading.logicalMin ||
             reading.value > reading.logicalMax) {
             return;
         }
@@ -362,6 +391,50 @@ namespace
             reading.logicalMax);
     }
 
+    void ApplyAllyStickLayout(
+        DeviceContext& device,
+        const BYTE* report,
+        ULONG reportLength,
+        ParsedState& parsed)
+    {
+        if (!IsAllyController(device) || reportLength < 10)
+            return;
+
+        parsed.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
+        parsed.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
+        parsed.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
+        parsed.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
+
+        parsed.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeAllyStickByte(report[2]);
+        parsed.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeAllyStickByte(report[4]);
+        parsed.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeAllyStickByte(report[6]);
+        parsed.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeAllyStickByte(report[8]);
+
+        constexpr int movementThreshold = 1024;
+        const bool moved =
+            std::abs(static_cast<int>(parsed.axes[SDL_GAMEPAD_AXIS_LEFTX])) > movementThreshold ||
+            std::abs(static_cast<int>(parsed.axes[SDL_GAMEPAD_AXIS_LEFTY])) > movementThreshold ||
+            std::abs(static_cast<int>(parsed.axes[SDL_GAMEPAD_AXIS_RIGHTX])) > movementThreshold ||
+            std::abs(static_cast<int>(parsed.axes[SDL_GAMEPAD_AXIS_RIGHTY])) > movementThreshold;
+
+        if (moved && !device.firstDirectStickMotionLogged) {
+            device.firstDirectStickMotionLogged = true;
+            Log::writeLine(
+                QString(
+                    "[RawInput] First direct Ally stick state: "
+                    "rawLX=%1 rawLY=%2 rawRX=%3 rawRY=%4 "
+                    "LX=%5 LY=%6 RX=%7 RY=%8")
+                    .arg(report[2])
+                    .arg(report[4])
+                    .arg(report[6])
+                    .arg(report[8])
+                    .arg(parsed.axes[SDL_GAMEPAD_AXIS_LEFTX])
+                    .arg(parsed.axes[SDL_GAMEPAD_AXIS_LEFTY])
+                    .arg(parsed.axes[SDL_GAMEPAD_AXIS_RIGHTX])
+                    .arg(parsed.axes[SDL_GAMEPAD_AXIS_RIGHTY]));
+        }
+    }
+
     void ParseValues(
         DeviceContext& device,
         const BYTE* report,
@@ -381,7 +454,7 @@ namespace
 
             for (USAGE usage : CapUsages(cap)) {
                 ULONG rawValue = 0;
-                NTSTATUS status = HidP_GetUsageValue(
+                const NTSTATUS status = HidP_GetUsageValue(
                     HidP_Input,
                     cap.UsagePage,
                     cap.LinkCollection,
@@ -419,9 +492,6 @@ namespace
         const LogicalReading slider = reading(HID_USAGE_GENERIC_SLIDER);
         const LogicalReading dial = reading(HID_USAGE_GENERIC_DIAL);
 
-        // Xbox-style HID descriptors expose Rx/Ry as the right stick and
-        // Z/Rz as independent triggers. Older DirectInput-style descriptors
-        // may use Z/Rz for the right stick and Slider/Dial for triggers.
         if (rx.available && ry.available) {
             ApplySignedAxis(rx, SDL_GAMEPAD_AXIS_RIGHTX, parsed);
             ApplySignedAxis(ry, SDL_GAMEPAD_AXIS_RIGHTY, parsed);
@@ -436,6 +506,12 @@ namespace
         }
 
         ApplyHatSwitch(reading(HID_USAGE_GENERIC_HATSWITCH), parsed);
+
+        // ASUS labels the Ally's four physical stick values unusually in the
+        // HID descriptor. The exact on-device report captured in Xbox mode is
+        // stable and places LX/LY/RX/RY at byte offsets 2/4/6/8. Override only
+        // those axes; descriptor-parsed buttons, D-pad, and triggers remain.
+        ApplyAllyStickLayout(device, report, reportLength, parsed);
     }
 
     bool IsNonNeutral(const ParsedState& parsed)
@@ -616,6 +692,12 @@ namespace
             " buttonCaps=" + QString::number(context.buttonCaps.size()) +
             " valueCaps=" + QString::number(context.valueCaps.size()) +
             " score=" + QString::number(context.selectionScore));
+
+        if (IsAllyController(context)) {
+            Log::writeLine(
+                "[RawInput] Using captured Ally stick layout: "
+                "LX=byte2 LY=byte4 RX=byte6 RY=byte8 center=128.");
+        }
 
         return context.usable;
     }
