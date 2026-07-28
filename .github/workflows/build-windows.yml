@@ -1,0 +1,92 @@
+name: Build Windows
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      SDL_VERSION: 3.4.10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.9.1
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Install SDL
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "SDL3-devel-$env:SDL_VERSION-VC.zip"
+          $extractRoot = Join-Path $env:RUNNER_TEMP "sdl"
+          $url = "https://github.com/libsdl-org/SDL/releases/download/release-$env:SDL_VERSION/SDL3-devel-$env:SDL_VERSION-VC.zip"
+
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $extractRoot -Force
+
+          $sdlRoot = Join-Path $extractRoot "SDL3-$env:SDL_VERSION"
+          if (-not (Test-Path (Join-Path $sdlRoot "include\SDL3\SDL.h"))) {
+            throw "SDL headers were not found at $sdlRoot"
+          }
+
+          "SDL3_ROOT=$sdlRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build WoWpadX
+        shell: pwsh
+        run: |
+          $project = Join-Path $env:GITHUB_WORKSPACE "WoWpadX\WoWpadX.vcxproj"
+
+          & msbuild $project `
+            /m `
+            /t:Build `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            "/p:SDL3Root=$env:SDL3_ROOT" `
+            "/p:QtInstall=$env:QT_ROOT_DIR"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSBuild failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Stage portable build
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter WoWpadX.exe |
+            Where-Object { $_.FullName -notmatch "Overlay" } |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "WoWpadX.exe was not produced"
+          }
+
+          $stage = Join-Path $env:GITHUB_WORKSPACE "artifact"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item -Path (Join-Path $exe.Directory.FullName "*") -Destination $stage -Recurse -Force
+
+          $sdlDll = Join-Path $env:SDL3_ROOT "lib\x64\SDL3.dll"
+          Copy-Item -Path $sdlDll -Destination (Join-Path $stage "SDL3.dll") -Force
+
+          $deployQt = Join-Path $env:QT_ROOT_DIR "bin\windeployqt.exe"
+          & $deployQt --release --qmldir (Join-Path $env:GITHUB_WORKSPACE "WoWpadX\QML") (Join-Path $stage "WoWpadX.exe")
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "windeployqt failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: WoWpadX-xbox-windows-x64
+          path: artifact
+          if-no-files-found: error
