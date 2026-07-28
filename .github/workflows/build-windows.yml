@@ -25,79 +25,97 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           source_path = Path("WoWpadX/RawInputDiagnostics.cpp")
           source = source_path.read_text(encoding="utf-8-sig")
 
           if "firstDirectTriggerMotionLogged" not in source:
-              source = source.replace(
-                  "        bool firstDirectStickMotionLogged = false;\n",
-                  "        bool firstDirectStickMotionLogged = false;\n"
-                  "        bool firstDirectTriggerMotionLogged = false;\n",
-                  1,
+              source, count = re.subn(
+                  r"(?m)^(\s*)bool firstDirectStickMotionLogged = false;\s*$",
+                  lambda match: (
+                      f"{match.group(1)}bool firstDirectStickMotionLogged = false;\n"
+                      f"{match.group(1)}bool firstDirectTriggerMotionLogged = false;"
+                  ),
+                  source,
+                  count=1,
               )
+              if count != 1:
+                  raise SystemExit("Could not locate Ally trigger log field insertion point")
 
-          source = source.replace(
-              "        if (!IsAllyController(device) || reportLength < 10)\n",
-              "        if (!IsAllyController(device) || reportLength < 11)\n",
-              1,
+          source = re.sub(
+              r"reportLength\s*<\s*10",
+              "reportLength < 11",
+              source,
+              count=1,
           )
 
-          stick_assignment = """        parsed.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeAllyStickByte(report[2]);
-          parsed.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeAllyStickByte(report[4]);
-          parsed.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeAllyStickByte(report[6]);
-          parsed.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeAllyStickByte(report[8]);
-          """
-
           if "First direct Ally trigger state" not in source:
-              trigger_assignment = stick_assignment + """
-          // The Ally compatibility HID collection exposes both analog triggers
-          // on one centered byte. Left drives 0x80 toward 0x00 and right drives
-          // 0x80 toward 0xFF. Convert each half into SDL's 0..32767 range.
-          parsed.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
-          parsed.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
+              pattern = re.compile(
+                  r"(?m)^(?P<indent>\s*)parsed\.axes\[SDL_GAMEPAD_AXIS_RIGHTY\]\s*=\s*"
+                  r"NormalizeAllyStickByte\(report\[8\]\);\s*$"
+              )
 
-          const int combinedTrigger = static_cast<int>(report[10]);
-          const int leftMagnitude = combinedTrigger < 128
-              ? 128 - combinedTrigger
-              : 0;
-          const int rightMagnitude = combinedTrigger > 128
-              ? combinedTrigger - 128
-              : 0;
+              trigger_code = r'''
 
-          parsed.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = static_cast<Sint16>(
-              std::min(32767, leftMagnitude * 32767 / 128));
-          parsed.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = static_cast<Sint16>(
-              std::min(32767, rightMagnitude * 32767 / 127));
+{indent}// The Ally compatibility HID collection exposes both analog triggers
+{indent}// on one centered byte. Left drives 0x80 toward 0x00 and right drives
+{indent}// 0x80 toward 0xFF. Convert each half into SDL's 0..32767 range.
+{indent}parsed.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
+{indent}parsed.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
 
-          if (combinedTrigger != 128 && !device.firstDirectTriggerMotionLogged) {
-              device.firstDirectTriggerMotionLogged = true;
-              Log::writeLine(
-                  QString(
-                      "[RawInput] First direct Ally trigger state: raw=%1 LT=%2 RT=%3")
-                      .arg(combinedTrigger)
-                      .arg(parsed.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER])
-                      .arg(parsed.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER]));
-          }
-          """
-              if stick_assignment not in source:
-                  raise SystemExit("Could not locate Ally stick assignment block")
-              source = source.replace(stick_assignment, trigger_assignment, 1)
+{indent}const int combinedTrigger = static_cast<int>(report[10]);
+{indent}const int leftMagnitude = combinedTrigger < 128
+{indent}    ? 128 - combinedTrigger
+{indent}    : 0;
+{indent}const int rightMagnitude = combinedTrigger > 128
+{indent}    ? combinedTrigger - 128
+{indent}    : 0;
+
+{indent}parsed.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = static_cast<Sint16>(
+{indent}    std::min(32767, leftMagnitude * 32767 / 128));
+{indent}parsed.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = static_cast<Sint16>(
+{indent}    std::min(32767, rightMagnitude * 32767 / 127));
+
+{indent}if (combinedTrigger != 128 && !device.firstDirectTriggerMotionLogged) {{
+{indent}    device.firstDirectTriggerMotionLogged = true;
+{indent}    Log::writeLine(
+{indent}        QString(
+{indent}            "[RawInput] First direct Ally trigger state: raw=%1 LT=%2 RT=%3")
+{indent}            .arg(combinedTrigger)
+{indent}            .arg(parsed.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER])
+{indent}            .arg(parsed.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER]));
+{indent}}}
+'''
+
+              def add_triggers(match):
+                  indent = match.group("indent")
+                  return match.group(0) + trigger_code.format(indent=indent)
+
+              source, count = pattern.subn(add_triggers, source, count=1)
+              if count != 1:
+                  raise SystemExit("Could not locate Ally stick assignment insertion point")
 
           source_path.write_text(source, encoding="utf-8")
 
           qml_path = Path("WoWpadX/QML/SettingsKeybindings.qml")
           qml = qml_path.read_text(encoding="utf-8-sig")
-          old = "                        onCurrentIndexChanged: AppSettings.modifierStyle = currentIndex\n"
-          new = """                        onActivated: {
-                              // A selected preset overrides stale hidden custom bindings.
-                              AppSettings.customBindings = false
-                              AppSettings.modifierStyle = currentIndex
-                              AppSettings.save()
-                          }
-          """
-          if old in qml:
-              qml = qml.replace(old, new, 1)
+          if "A selected preset overrides stale hidden custom bindings" not in qml:
+              qml, count = re.subn(
+                  r"(?m)^(\s*)onCurrentIndexChanged:\s*AppSettings\.modifierStyle\s*=\s*currentIndex\s*$",
+                  lambda match: (
+                      f"{match.group(1)}onActivated: {{\n"
+                      f"{match.group(1)}    // A selected preset overrides stale hidden custom bindings.\n"
+                      f"{match.group(1)}    AppSettings.customBindings = false\n"
+                      f"{match.group(1)}    AppSettings.modifierStyle = currentIndex\n"
+                      f"{match.group(1)}    AppSettings.save()\n"
+                      f"{match.group(1)}}}"
+                  ),
+                  qml,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("Could not locate modifier preset handler")
           qml_path.write_text(qml, encoding="utf-8")
 
       - name: Commit source patch
