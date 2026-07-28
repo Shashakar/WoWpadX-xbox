@@ -131,6 +131,7 @@
     <ClCompile Include="BindManager.cpp" />
     <ClCompile Include="ControllerManager.cpp" />
     <ClCompile Include="DevicesController.cpp" />
+    <ClCompile Include="InputDiagnostics.cpp" />
     <ClCompile Include="InputMapper.cpp" />
     <ClCompile Include="Log.cpp" />
     <ClCompile Include="main.cpp" />
@@ -161,6 +162,7 @@
   <ItemGroup>
     <QtMoc Include="ControllerManager.h" />
     <QtMoc Include="DevicesController.h" />
+    <ClInclude Include="InputDiagnostics.h" />
     <ClInclude Include="InputMapper.h" />
     <QtMoc Include="MainPageController.h" />
     <QtMoc Include="MemoryReadingController.h" />
