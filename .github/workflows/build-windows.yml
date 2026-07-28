@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -17,6 +17,101 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply Ally trigger and modifier fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          source_path = Path("WoWpadX/RawInputDiagnostics.cpp")
+          source = source_path.read_text(encoding="utf-8-sig")
+
+          if "firstDirectTriggerMotionLogged" not in source:
+              source = source.replace(
+                  "        bool firstDirectStickMotionLogged = false;\n",
+                  "        bool firstDirectStickMotionLogged = false;\n"
+                  "        bool firstDirectTriggerMotionLogged = false;\n",
+                  1,
+              )
+
+          source = source.replace(
+              "        if (!IsAllyController(device) || reportLength < 10)\n",
+              "        if (!IsAllyController(device) || reportLength < 11)\n",
+              1,
+          )
+
+          stick_assignment = """        parsed.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeAllyStickByte(report[2]);
+          parsed.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeAllyStickByte(report[4]);
+          parsed.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeAllyStickByte(report[6]);
+          parsed.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeAllyStickByte(report[8]);
+          """
+
+          if "First direct Ally trigger state" not in source:
+              trigger_assignment = stick_assignment + """
+          // The Ally compatibility HID collection exposes both analog triggers
+          // on one centered byte. Left drives 0x80 toward 0x00 and right drives
+          // 0x80 toward 0xFF. Convert each half into SDL's 0..32767 range.
+          parsed.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
+          parsed.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
+
+          const int combinedTrigger = static_cast<int>(report[10]);
+          const int leftMagnitude = combinedTrigger < 128
+              ? 128 - combinedTrigger
+              : 0;
+          const int rightMagnitude = combinedTrigger > 128
+              ? combinedTrigger - 128
+              : 0;
+
+          parsed.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = static_cast<Sint16>(
+              std::min(32767, leftMagnitude * 32767 / 128));
+          parsed.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = static_cast<Sint16>(
+              std::min(32767, rightMagnitude * 32767 / 127));
+
+          if (combinedTrigger != 128 && !device.firstDirectTriggerMotionLogged) {
+              device.firstDirectTriggerMotionLogged = true;
+              Log::writeLine(
+                  QString(
+                      "[RawInput] First direct Ally trigger state: raw=%1 LT=%2 RT=%3")
+                      .arg(combinedTrigger)
+                      .arg(parsed.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER])
+                      .arg(parsed.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER]));
+          }
+          """
+              if stick_assignment not in source:
+                  raise SystemExit("Could not locate Ally stick assignment block")
+              source = source.replace(stick_assignment, trigger_assignment, 1)
+
+          source_path.write_text(source, encoding="utf-8")
+
+          qml_path = Path("WoWpadX/QML/SettingsKeybindings.qml")
+          qml = qml_path.read_text(encoding="utf-8-sig")
+          old = "                        onCurrentIndexChanged: AppSettings.modifierStyle = currentIndex\n"
+          new = """                        onActivated: {
+                              // A selected preset overrides stale hidden custom bindings.
+                              AppSettings.customBindings = false
+                              AppSettings.modifierStyle = currentIndex
+                              AppSettings.save()
+                          }
+          """
+          if old in qml:
+              qml = qml.replace(old, new, 1)
+          qml_path.write_text(qml, encoding="utf-8")
+
+      - name: Commit source patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Source already patched"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add WoWpadX/RawInputDiagnostics.cpp WoWpadX/QML/SettingsKeybindings.qml
+          git commit -m "[ally-trigger-fix] Decode combined triggers and apply modifier presets"
+          git push origin HEAD:${{ github.head_ref }}
 
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
