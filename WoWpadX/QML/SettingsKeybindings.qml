@@ -21,37 +21,40 @@ Item {
             Label { text: "Controller Settings"; font.pixelSize: 16 }
             Rectangle { height: 1; width: parent.width }
 
-            
-
-                ColumnLayout {
-                    Layout.preferredWidth: parent.width
-                    spacing: 5
-                    Label { text: "Modifier Buttons" }
-                    ComboBox {
-                        Layout.preferredWidth: parent.width - 50
-                        model: [
-                            "Default (L1+L2)",
-                            "Triggers (L2+R2)",
-                            "Reversed (R1+R2)",
-                            "Shoulders (L1+R1)"
-                        ]
-                        currentIndex: AppSettings.modifierStyle
-                        onCurrentIndexChanged: AppSettings.modifierStyle = currentIndex
+            ColumnLayout {
+                Layout.preferredWidth: parent.width
+                spacing: 5
+                Label { text: "Modifier Buttons" }
+                ComboBox {
+                    Layout.preferredWidth: parent.width - 50
+                    model: [
+                        "Default (L1+L2)",
+                        "Triggers (L2+R2)",
+                        "Reversed (R1+R2)",
+                        "Shoulders (L1+R1)"
+                    ]
+                    currentIndex: AppSettings.modifierStyle
+                    onActivated: {
+                        // A selected preset overrides stale hidden custom bindings.
+                        AppSettings.customBindings = false
+                        AppSettings.modifierStyle = currentIndex
+                        AppSettings.save()
                     }
                 }
+            }
 
-                ColumnLayout {
-                    Layout.preferredWidth: parent.width
-                    spacing: 5 
-                    Label { text: "Displayed Icons" }
-                    ComboBox {
-                        enabled: false
-                        Layout.preferredWidth: parent.width - 50
-                        model: ["Auto Detect", "PlayStation", "Xbox"]
-                        currentIndex: AppSettings.buttonStyle
-                        onCurrentIndexChanged: AppSettings.buttonStyle = currentIndex
-                    }
+            ColumnLayout {
+                Layout.preferredWidth: parent.width
+                spacing: 5
+                Label { text: "Displayed Icons" }
+                ComboBox {
+                    enabled: false
+                    Layout.preferredWidth: parent.width - 50
+                    model: ["Auto Detect", "PlayStation", "Xbox"]
+                    currentIndex: AppSettings.buttonStyle
+                    onCurrentIndexChanged: AppSettings.buttonStyle = currentIndex
                 }
+            }
 
             /*
 
