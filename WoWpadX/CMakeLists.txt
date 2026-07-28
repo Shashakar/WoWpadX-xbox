@@ -48,6 +48,7 @@ qt_add_executable(
     InputDiagnostics.h
     InputMapper.cpp
     InputMapper.h
+    InputSource.h
     Log.cpp
     Log.h
     main.cpp
@@ -62,6 +63,7 @@ qt_add_executable(
     ProcessManager.cpp
     ProcessManager.h
     RawInputDiagnostics.cpp
+    RawInputGamepad.h
     TrayManager.cpp
     TrayManager.h
     WoWReader.cpp
@@ -89,6 +91,7 @@ target_link_libraries(
         Qt6::Quick
         Qt6::QuickControls2
         SDL3::SDL3
+        hid
 )
 
 qt_finalize_executable(WoWpadX)
