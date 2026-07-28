@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Log.h"
+#include "RawInputGamepad.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gamepad.h>
@@ -151,6 +152,7 @@ namespace InputSource
 
     inline void UpdateGamepads()
     {
+        RawInputGamepad::EnsureStarted();
         ::SDL_UpdateGamepads();
         PollNativeGameInput();
     }
@@ -220,6 +222,9 @@ namespace InputSource
         SDL_GamepadButton button)
     {
         bool pressed = false;
+        if (RawInputGamepad::TryGetButton(button, pressed))
+            return pressed;
+
         if (TryGetNativeButton(button, pressed))
             return pressed;
 
@@ -230,6 +235,10 @@ namespace InputSource
         SDL_Gamepad* gamepadHandle,
         SDL_GamepadAxis axis)
     {
+        Sint16 rawValue = 0;
+        if (RawInputGamepad::TryGetAxis(axis, rawValue))
+            return rawValue;
+
         {
             std::lock_guard<std::mutex> lock(stateMutex);
             if (nativeReadingAvailable) {
