@@ -64,6 +64,7 @@ qt_add_executable(
     ProcessManager.h
     RawInputDiagnostics.cpp
     RawInputGamepad.h
+    RawInputHidIncludes.h
     TrayManager.cpp
     TrayManager.h
     WoWReader.cpp
@@ -80,6 +81,12 @@ target_compile_definitions(
     PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+)
+
+target_compile_options(
+    WoWpadX
+    PRIVATE
+        "$<$<CXX_COMPILER_ID:MSVC>:/FI${CMAKE_CURRENT_SOURCE_DIR}/RawInputHidIncludes.h>"
 )
 
 target_link_libraries(
