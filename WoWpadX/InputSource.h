@@ -18,6 +18,12 @@ namespace InputSource
 {
     using GameInputCreateFunction = HRESULT(WINAPI*)(IGameInput**);
 
+    // GameInputEnableBackgroundInput is ABI value 0x40. Some Windows SDK
+    // GameInput.h versions expose SetFocusPolicy but do not yet name this
+    // newer enum member, so keep the stable wire value local.
+    constexpr GameInputFocusPolicy BackgroundInputFocusPolicy =
+        static_cast<GameInputFocusPolicy>(0x00000040);
+
     inline std::mutex stateMutex;
     inline HMODULE gameInputModule = nullptr;
     inline IGameInput* gameInput = nullptr;
@@ -66,8 +72,7 @@ namespace InputSource
             return false;
         }
 
-        gameInput->SetFocusPolicy(
-            static_cast<GameInputFocusPolicy>(GameInputEnableBackgroundInput));
+        gameInput->SetFocusPolicy(BackgroundInputFocusPolicy);
 
         Log::writeLine(
             "[NativeGameInput] Initialized native GameInput and enabled background input focus policy.");
