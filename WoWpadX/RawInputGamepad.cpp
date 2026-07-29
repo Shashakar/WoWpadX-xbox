@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <mutex>
@@ -44,10 +43,6 @@ namespace
         HIDP_CAPS caps{};
         std::vector<HIDP_BUTTON_CAPS> buttonCaps;
         std::vector<HIDP_VALUE_CAPS> valueCaps;
-        bool firstStickLogged = false;
-        bool firstTriggerLogged = false;
-        std::array<BYTE, 16> lastDiagnosticReport{};
-        bool hasLastDiagnosticReport = false;
     };
 
     std::atomic<bool> started = false;
@@ -247,7 +242,6 @@ namespace
     }
 
     void ParseAllyAxes(
-        DeviceContext& device,
         const BYTE* report,
         ULONG reportLength,
         ControllerState& state)
@@ -268,8 +262,8 @@ namespace
         state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeStick(report[8]);
 
         // The Ally compatibility HID report combines both triggers on byte 10.
-        // Neutral is 0x80. One trigger moves toward 0x00; the other moves toward
-        // 0xFF. Split the two halves into SDL's independent trigger axes.
+        // Neutral is 0x80. One trigger moves toward 0x00 and the other toward
+        // 0xFF, so split the two halves into SDL-compatible trigger axes.
         const int combinedTrigger = static_cast<int>(report[10]);
         const int leftMagnitude = combinedTrigger < 128
             ? 128 - combinedTrigger
@@ -282,60 +276,6 @@ namespace
             NormalizeTriggerMagnitude(leftMagnitude, 128);
         state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
             NormalizeTriggerMagnitude(rightMagnitude, 127);
-
-        constexpr int motionThreshold = 1024;
-        const bool stickMoved =
-            std::abs(static_cast<int>(state.axes[SDL_GAMEPAD_AXIS_LEFTX])) > motionThreshold ||
-            std::abs(static_cast<int>(state.axes[SDL_GAMEPAD_AXIS_LEFTY])) > motionThreshold ||
-            std::abs(static_cast<int>(state.axes[SDL_GAMEPAD_AXIS_RIGHTX])) > motionThreshold ||
-            std::abs(static_cast<int>(state.axes[SDL_GAMEPAD_AXIS_RIGHTY])) > motionThreshold;
-
-        if (stickMoved && !device.firstStickLogged) {
-            device.firstStickLogged = true;
-            Log::writeLine(
-                QString(
-                    "[RawInput] First direct Ally stick state: "
-                    "rawLX=%1 rawLY=%2 rawRX=%3 rawRY=%4")
-                    .arg(report[2])
-                    .arg(report[4])
-                    .arg(report[6])
-                    .arg(report[8]));
-        }
-
-    const bool sticksNearNeutral =
-        std::abs(static_cast<int>(report[2]) - 128) <= 6 &&
-        std::abs(static_cast<int>(report[4]) - 128) <= 6 &&
-        std::abs(static_cast<int>(report[6]) - 128) <= 6 &&
-        std::abs(static_cast<int>(report[8]) - 128) <= 6;
-
-    bool reportChanged = !device.hasLastDiagnosticReport;
-    if (!reportChanged) {
-        for (ULONG index = 0; index < reportLength && index < 16; ++index) {
-            if (device.lastDiagnosticReport[index] != report[index]) {
-                reportChanged = true;
-                break;
-            }
-        }
-    }
-
-    if (sticksNearNeutral && reportChanged) {
-        QString bytes;
-        for (ULONG index = 0; index < reportLength && index < 16; ++index) {
-            if (!bytes.isEmpty())
-                bytes += " ";
-            bytes += QString("%1").arg(report[index], 2, 16, QChar('0'));
-            device.lastDiagnosticReport[index] = report[index];
-        }
-        device.hasLastDiagnosticReport = true;
-
-        Log::writeLine(
-            QString(
-                "[RawInput] Ally neutral-stick report bytes=[%1] combined=%2 LT=%3 RT=%4")
-                .arg(bytes)
-                .arg(combinedTrigger)
-                .arg(state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER])
-                .arg(state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER]));
-    }
     }
 
     bool LoadDevice(HANDLE handle, DeviceContext& output)
@@ -490,7 +430,7 @@ namespace
             ControllerState state;
             ParseButtons(*device, report, reportLength, state);
             ParseDPad(*device, report, reportLength, state);
-            ParseAllyAxes(*device, report, reportLength, state);
+            ParseAllyAxes(report, reportLength, state);
             Publish(state);
         }
     }
@@ -585,7 +525,7 @@ namespace
         }
 
         Log::writeLine(
-            "[RawInput] Registered dedicated Ally button, stick, and trigger backend.");
+            "[RawInput] Registered Ally controller backend.");
 
         UINT deviceCount = 0;
         if (GetRawInputDeviceList(
