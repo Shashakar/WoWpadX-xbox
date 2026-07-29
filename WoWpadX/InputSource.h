@@ -10,7 +10,6 @@
 #include <Windows.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <mutex>
@@ -30,9 +29,7 @@ namespace InputSource
     inline IGameInput* gameInput = nullptr;
     inline bool initializationAttempted = false;
     inline bool nativeReadingAvailable = false;
-    inline bool firstNativeInputLogged = false;
     inline GameInputGamepadState nativeState{};
-    inline std::chrono::steady_clock::time_point lastHeartbeat{};
 
     inline bool InitializeNativeGameInput()
     {
@@ -74,35 +71,9 @@ namespace InputSource
         }
 
         gameInput->SetFocusPolicy(BackgroundInputFocusPolicy);
-
         Log::writeLine(
             "[NativeGameInput] Initialized native GameInput and enabled background input focus policy.");
         return true;
-    }
-
-    inline QString DescribeState(const GameInputGamepadState& state)
-    {
-        return QString(
-            "buttons=0x%1 LX=%2 LY=%3 RX=%4 RY=%5 LT=%6 RT=%7")
-            .arg(static_cast<quint32>(state.buttons), 0, 16)
-            .arg(state.leftThumbstickX, 0, 'f', 3)
-            .arg(state.leftThumbstickY, 0, 'f', 3)
-            .arg(state.rightThumbstickX, 0, 'f', 3)
-            .arg(state.rightThumbstickY, 0, 'f', 3)
-            .arg(state.leftTrigger, 0, 'f', 3)
-            .arg(state.rightTrigger, 0, 'f', 3);
-    }
-
-    inline bool IsNonNeutral(const GameInputGamepadState& state)
-    {
-        constexpr float epsilon = 0.01f;
-        return state.buttons != GameInputGamepadNone ||
-            std::fabs(state.leftThumbstickX) > epsilon ||
-            std::fabs(state.leftThumbstickY) > epsilon ||
-            std::fabs(state.rightThumbstickX) > epsilon ||
-            std::fabs(state.rightThumbstickY) > epsilon ||
-            state.leftTrigger > epsilon ||
-            state.rightTrigger > epsilon;
     }
 
     inline void PollNativeGameInput()
@@ -130,23 +101,6 @@ namespace InputSource
             nativeReadingAvailable = readingAvailable;
             if (readingAvailable)
                 nativeState = state;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-        if (readingAvailable && IsNonNeutral(state) && !firstNativeInputLogged) {
-            firstNativeInputLogged = true;
-            Log::writeLine(
-                "[NativeGameInput] First non-neutral background reading: " +
-                DescribeState(state));
-        }
-
-        if (lastHeartbeat.time_since_epoch().count() == 0 ||
-            now - lastHeartbeat >= std::chrono::seconds(5)) {
-            lastHeartbeat = now;
-            Log::writeLine(
-                readingAvailable
-                    ? "[NativeGameInput] Reading available: " + DescribeState(state)
-                    : "[NativeGameInput] No gamepad reading available.");
         }
     }
 
