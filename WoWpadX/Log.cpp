@@ -1,5 +1,4 @@
 #include "Log.h"
-#include "AppSettings.h"
 
 #include <QStandardPaths>
 #include <QDir>
@@ -26,7 +25,7 @@ void Log::initialize()
     }
 
     m_file = file;
-    m_stream = new QTextStream(m_file); 
+    m_stream = new QTextStream(m_file);
 }
 
 void Log::writeLine(const QString& text, bool useDateTime)
@@ -37,7 +36,11 @@ void Log::writeLine(const QString& text, bool useDateTime)
 
     qDebug().noquote() << finalText;
 
-    if (AppSettings::instance()->enableLogging() && m_stream) {
+    // Logging is used while AppSettings itself is being constructed. Calling
+    // AppSettings::instance() here creates a recursive singleton construction
+    // path and eventually raises STATUS_STACK_OVERFLOW (0xC00000FD).
+    // Keep the low-level logger independent from application settings.
+    if (m_stream) {
         QMutexLocker locker(&m_mutex);
         (*m_stream) << finalText << Qt::endl;
     }
