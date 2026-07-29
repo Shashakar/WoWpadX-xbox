@@ -27,8 +27,6 @@ jobs:
           from pathlib import Path
           import re
 
-          # Hidden custom bindings are not exposed by the UI and can silently
-          # override the visible modifier preset. Always use the selected preset.
           bind_path = Path("WoWpadX/BindManager.cpp")
           bind = bind_path.read_text(encoding="utf-8-sig")
           get_key_pattern = re.compile(
@@ -55,13 +53,9 @@ jobs:
               raise SystemExit("Could not replace BindManager::getKey")
           bind_path.write_text(bind, encoding="utf-8")
 
-          # Use the activated signal's index argument rather than relying on the
-          # bound currentIndex value, then persist immediately.
           qml_path = Path("WoWpadX/QML/SettingsKeybindings.qml")
           qml = qml_path.read_text(encoding="utf-8-sig")
-          qml_pattern = re.compile(
-              r"(?ms)^(\s*)onActivated:\s*\{.*?^\1\}",
-          )
+          qml_pattern = re.compile(r"(?ms)^(\s*)onActivated:\s*\{.*?^\1\}")
           def replace_qml(match):
               indent = match.group(1)
               return (
@@ -76,8 +70,6 @@ jobs:
               raise SystemExit("Could not replace modifier ComboBox handler")
           qml_path.write_text(qml, encoding="utf-8")
 
-          # Disable stale hidden custom-binding state when loading old settings
-          # and record the effective modifier profile at startup.
           settings_path = Path("WoWpadX/AppSettings.cpp")
           settings = settings_path.read_text(encoding="utf-8-sig")
           if '#include "Log.h"' not in settings:
@@ -103,11 +95,8 @@ jobs:
               )
           settings_path.write_text(settings, encoding="utf-8")
 
-          # Add detailed HID value-cap and trigger-candidate logging. The current
-          # report assumption sees R2, but L2 is not moving the negative half.
           raw_path = Path("WoWpadX/RawInputGamepad.cpp")
           raw = raw_path.read_text(encoding="utf-8-sig")
-
           if "lastDiagnosticReport" not in raw:
               raw, count = re.subn(
                   r"(?m)^(\s*)bool firstTriggerLogged = false;\s*$",
@@ -123,7 +112,7 @@ jobs:
                   raise SystemExit("Could not add trigger diagnostic state")
 
           old_trigger_log = re.compile(
-              r"(?ms)^\s*if \(combinedTrigger != 128 && !device\.firstTriggerLogged\) \{.*?^\s*\}\n",
+              r"(?ms)^\s*if \(combinedTrigger != 128 && !device\.firstTriggerLogged\) \{.*?^\s*\}\n"
           )
           diagnostic_block = '''
               const bool sticksNearNeutral =
@@ -164,47 +153,6 @@ jobs:
           raw, count = old_trigger_log.subn(diagnostic_block, raw, count=1)
           if count != 1:
               raise SystemExit("Could not replace trigger diagnostic block")
-
-          cap_marker = '''        Log::writeLine(
-              QString(
-                  "[RawInput] Loaded Ally controller path=\\"%1\\" "
-                  "reportBytes=%2 buttonCaps=%3 valueCaps=%4")
-                  .arg(output.path)
-                  .arg(output.caps.InputReportByteLength)
-                  .arg(output.buttonCaps.size())
-                  .arg(output.valueCaps.size()));
-          return true;
-          '''
-          if "Ally value cap" not in raw:
-              cap_replacement = cap_marker.replace(
-                  "        return true;\n",
-                  '''        for (const HIDP_VALUE_CAPS& cap : output.valueCaps) {
-                      const USAGE usageMin = cap.IsRange
-                          ? cap.Range.UsageMin
-                          : cap.NotRange.Usage;
-                      const USAGE usageMax = cap.IsRange
-                          ? cap.Range.UsageMax
-                          : cap.NotRange.Usage;
-                      Log::writeLine(
-                          QString(
-                              "[RawInput] Ally value cap page=0x%1 usage=0x%2..0x%3 "
-                              "reportId=%4 bitSize=%5 count=%6 logical=%7..%8")
-                              .arg(cap.UsagePage, 0, 16)
-                              .arg(usageMin, 0, 16)
-                              .arg(usageMax, 0, 16)
-                              .arg(cap.ReportID)
-                              .arg(cap.BitSize)
-                              .arg(cap.ReportCount)
-                              .arg(cap.LogicalMin)
-                              .arg(cap.LogicalMax));
-                  }
-                  return true;
-          ''',
-              )
-              if cap_marker not in raw:
-                  raise SystemExit("Could not locate Ally device log block")
-              raw = raw.replace(cap_marker, cap_replacement, 1)
-
           raw_path.write_text(raw, encoding="utf-8")
 
       - name: Commit source patch
@@ -238,15 +186,12 @@ jobs:
           $archive = Join-Path $env:RUNNER_TEMP "SDL3-devel-$env:SDL_VERSION-VC.zip"
           $extractRoot = Join-Path $env:RUNNER_TEMP "sdl"
           $url = "https://github.com/libsdl-org/SDL/releases/download/release-$env:SDL_VERSION/SDL3-devel-$env:SDL_VERSION-VC.zip"
-
           Invoke-WebRequest -Uri $url -OutFile $archive
           Expand-Archive -Path $archive -DestinationPath $extractRoot -Force
-
           $sdlRoot = Join-Path $extractRoot "SDL3-$env:SDL_VERSION"
           if (-not (Test-Path (Join-Path $sdlRoot "include\SDL3\SDL.h"))) {
             throw "SDL headers were not found at $sdlRoot"
           }
-
           "SDL3_ROOT=$sdlRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Configure WoWpadX
@@ -259,43 +204,25 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR" `
             "-DSDL3_ROOT=$env:SDL3_ROOT"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "CMake configuration failed with exit code $LASTEXITCODE"
-          }
+          if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
 
       - name: Build WoWpadX
         shell: pwsh
         run: |
           cmake --build (Join-Path $env:GITHUB_WORKSPACE "build") --parallel
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "CMake build failed with exit code $LASTEXITCODE"
-          }
+          if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
 
       - name: Stage portable build
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "build") -Recurse -Filter WoWpadX.exe |
-            Select-Object -First 1
-
-          if (-not $exe) {
-            throw "WoWpadX.exe was not produced"
-          }
-
+          $exe = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "build") -Recurse -Filter WoWpadX.exe | Select-Object -First 1
+          if (-not $exe) { throw "WoWpadX.exe was not produced" }
           $stage = Join-Path $env:GITHUB_WORKSPACE "artifact"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           Copy-Item -Path $exe.FullName -Destination (Join-Path $stage "WoWpadX.exe") -Force
-
-          $sdlDll = Join-Path $env:SDL3_ROOT "lib\x64\SDL3.dll"
-          Copy-Item -Path $sdlDll -Destination (Join-Path $stage "SDL3.dll") -Force
-
-          $deployQt = Join-Path $env:QT_ROOT_DIR "bin\windeployqt.exe"
-          & $deployQt --release --qmldir (Join-Path $env:GITHUB_WORKSPACE "WoWpadX\QML") (Join-Path $stage "WoWpadX.exe")
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "windeployqt failed with exit code $LASTEXITCODE"
-          }
+          Copy-Item -Path (Join-Path $env:SDL3_ROOT "lib\x64\SDL3.dll") -Destination (Join-Path $stage "SDL3.dll") -Force
+          & (Join-Path $env:QT_ROOT_DIR "bin\windeployqt.exe") --release --qmldir (Join-Path $env:GITHUB_WORKSPACE "WoWpadX\QML") (Join-Path $stage "WoWpadX.exe")
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
 
       - name: Upload portable build
         uses: actions/upload-artifact@v4
