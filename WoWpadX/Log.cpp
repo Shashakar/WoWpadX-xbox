@@ -5,6 +5,21 @@
 #include <QDebug>
 #include <QTextStream>
 
+namespace
+{
+    bool IsTemporaryDiagnostic(const QString& text)
+    {
+        return text.startsWith("[InputDiag]") ||
+            text.startsWith("[Bindings] Effective modifier profile") ||
+            text.startsWith("[RawInput] First direct Ally stick state") ||
+            text.startsWith("[RawInput] First direct Ally trigger state") ||
+            text.startsWith("[RawInput] Ally neutral-stick report") ||
+            text.startsWith("[NativeGameInput] Reading available") ||
+            text.startsWith("[NativeGameInput] No gamepad reading available") ||
+            text.startsWith("[NativeGameInput] First non-neutral background reading");
+    }
+}
+
 QFile* Log::m_file = nullptr;
 QTextStream* Log::m_stream = nullptr;
 QMutex Log::m_mutex;
@@ -30,6 +45,9 @@ void Log::initialize()
 
 void Log::writeLine(const QString& text, bool useDateTime)
 {
+    if (IsTemporaryDiagnostic(text))
+        return;
+
     QString finalText = useDateTime
         ? QString("[%1] %2").arg(QTime::currentTime().toString("HH:mm:ss"), text)
         : text;
