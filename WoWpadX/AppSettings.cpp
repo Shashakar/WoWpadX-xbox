@@ -1,4 +1,5 @@
 #include "AppSettings.h"
+#include "Log.h"
 #include <QJsonDocument>
 #include <QFile>
 #include <QStandardPaths>
@@ -95,7 +96,7 @@ void AppSettings::load() {
     setSettingsVersion(obj["settingsVersion"].toString());
     setExportBindings(obj["exportBindings"].toBool());
     setModifierStyle(obj["modifierStyle"].toInt());
-    setCustomBindings(obj["customBindings"].toBool());
+    setCustomBindings(false);
     setWalkThreshold(obj["walkThreshold"].toInt());
     setHideAtStartup(obj["hideAtStartup"].toBool());
     setTriggerThresholdLeft(obj["triggerThresholdLeft"].toInt());
@@ -145,6 +146,9 @@ void AppSettings::load() {
     }
     setGameProcessNames(list);
     setSimpleRadial(obj["simpleRadial"].toBool());
+    Log::writeLine(QString("[Bindings] Effective modifier profile=%1 customBindings=%2")
+        .arg(m_modifierStyle)
+        .arg(m_customBindings ? "true" : "false"));
 }
 
 void AppSettings::save() {

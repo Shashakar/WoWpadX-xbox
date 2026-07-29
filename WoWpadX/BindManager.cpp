@@ -3,18 +3,11 @@
 
 int BindManager::getKey(GamepadBinding button) {
     try {
-        if (AppSettings::instance()->customBindings()) {
-            for (const auto& bind : currentKeybinds) {
-                if (bind.bindType == button)
-                    return bind.virtualKey;
-            }
-        }
-        else {
-            const auto& defaults = KeybindDefaults::getDefault(AppSettings::instance()->modifierStyle());
-            for (const auto& bind : defaults) {
-                if (bind.bindType == button)
-                    return bind.virtualKey;
-            }
+        const auto& defaults = KeybindDefaults::getDefault(
+            AppSettings::instance()->modifierStyle());
+        for (const auto& bind : defaults) {
+            if (bind.bindType == button)
+                return bind.virtualKey;
         }
     }
     catch (...) {}

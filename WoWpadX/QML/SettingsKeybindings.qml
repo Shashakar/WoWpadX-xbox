@@ -1,4 +1,4 @@
-﻿import QtQuick.Controls.Material
+import QtQuick.Controls.Material
 import QtQuick 6.2
 import QtQuick.Controls 6.2
 import QtQuick.Layouts 6.2
@@ -34,10 +34,9 @@ Item {
                         "Shoulders (L1+R1)"
                     ]
                     currentIndex: AppSettings.modifierStyle
-                    onActivated: {
-                        // A selected preset overrides stale hidden custom bindings.
+                    onActivated: function(index) {
                         AppSettings.customBindings = false
-                        AppSettings.modifierStyle = currentIndex
+                        AppSettings.modifierStyle = index
                         AppSettings.save()
                     }
                 }

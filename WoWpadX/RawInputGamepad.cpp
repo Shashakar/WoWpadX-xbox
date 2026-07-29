@@ -46,6 +46,8 @@ namespace
         std::vector<HIDP_VALUE_CAPS> valueCaps;
         bool firstStickLogged = false;
         bool firstTriggerLogged = false;
+        std::array<BYTE, 16> lastDiagnosticReport{};
+        bool hasLastDiagnosticReport = false;
     };
 
     std::atomic<bool> started = false;
@@ -300,15 +302,40 @@ namespace
                     .arg(report[8]));
         }
 
-        if (combinedTrigger != 128 && !device.firstTriggerLogged) {
-            device.firstTriggerLogged = true;
-            Log::writeLine(
-                QString(
-                    "[RawInput] First direct Ally trigger state: raw=%1 LT=%2 RT=%3")
-                    .arg(combinedTrigger)
-                    .arg(state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER])
-                    .arg(state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER]));
+    const bool sticksNearNeutral =
+        std::abs(static_cast<int>(report[2]) - 128) <= 6 &&
+        std::abs(static_cast<int>(report[4]) - 128) <= 6 &&
+        std::abs(static_cast<int>(report[6]) - 128) <= 6 &&
+        std::abs(static_cast<int>(report[8]) - 128) <= 6;
+
+    bool reportChanged = !device.hasLastDiagnosticReport;
+    if (!reportChanged) {
+        for (ULONG index = 0; index < reportLength && index < 16; ++index) {
+            if (device.lastDiagnosticReport[index] != report[index]) {
+                reportChanged = true;
+                break;
+            }
         }
+    }
+
+    if (sticksNearNeutral && reportChanged) {
+        QString bytes;
+        for (ULONG index = 0; index < reportLength && index < 16; ++index) {
+            if (!bytes.isEmpty())
+                bytes += " ";
+            bytes += QString("%1").arg(report[index], 2, 16, QChar('0'));
+            device.lastDiagnosticReport[index] = report[index];
+        }
+        device.hasLastDiagnosticReport = true;
+
+        Log::writeLine(
+            QString(
+                "[RawInput] Ally neutral-stick report bytes=[%1] combined=%2 LT=%3 RT=%4")
+                .arg(bytes)
+                .arg(combinedTrigger)
+                .arg(state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER])
+                .arg(state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER]));
+    }
     }
 
     bool LoadDevice(HANDLE handle, DeviceContext& output)
