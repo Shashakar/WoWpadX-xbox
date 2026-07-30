@@ -4,7 +4,6 @@
 
 ## **What is WoWpadX?**
 
-
 <img width="408" height="720" alt="Image" src="https://github.com/user-attachments/assets/cd98f59d-6054-4377-b80a-346f03a6adf9" />
 <img width="395" height="710" alt="Image" src="https://github.com/user-attachments/assets/33b8a4d0-5b43-4a8b-83ad-e2d875a6eba8" />
 
@@ -18,6 +17,23 @@ WoWpadX is a complete architectural rebuild designed aiming better performance a
 1. **Native C++ Codebase:** Built using C++ rather than C\#/.NET, eliminating runtime dependencies and (hopefully) increasing it's overall compatibility and performance.
 2. **SDL3 Backend:** Leverages the latest SDL3 for universal controller support (DualSense, Xbox Series, Switch Pro, etc.).  
 3. **Qt Framework:** Provides a robust, responsive GUI to make the experience closer to WoWmapperX
+
+## **Xbox Full Screen Experience / ROG Ally X**
+
+This fork adds a Windows Raw Input backend for the built-in controller on the Xbox ROG Ally X. It allows WoWpadX to receive buttons, sticks, D-pad, and trigger input when Windows boots directly into Xbox Full Screen Experience, without first switching to Desktop mode.
+
+For startup in Xbox mode, use Windows Task Scheduler with an **At log on** trigger, **Run with highest privileges**, and set **Start in** to the folder containing `WoWpadX.exe`.
+
+### **Windows Defender note**
+
+The portable executable is currently unsigned. Windows Defender may block or terminate it because WoWpadX reads controller HID input and generates keyboard/mouse input. This can appear in Task Scheduler as `0x8007042B` even when the application itself is valid.
+
+Do not disable Defender permanently. Keep Defender enabled and, only when necessary:
+
+1. Extract WoWpadX into a dedicated folder such as `C:\Tools\WoWpadX`.
+2. Review **Windows Security → Virus & threat protection → Protection history**.
+3. Add an exclusion for only the WoWpadX executable or its dedicated folder.
+4. Avoid excluding broad locations such as the Desktop or Downloads folders.
 
 ## **Command Line Arguments**
 
@@ -72,7 +88,7 @@ WoWpadX and **ConsolePortLK** are designed to be "Plug-and-Play."
 
 1. Launch WoWpadX (manually or via \-l).  
 2. Launch World of Warcraft. 
-4. That's it!.
+3. That's it.
 
 ## **Optional Components: Overlay & Loader**
 
@@ -87,7 +103,6 @@ Please note that while the source code is included, the overlay is not compiled 
 
 After building, simply place both WoWpadXOverlay.dll and WoWpadXOverlayLoader.exe inside the WoWpadX executable folder. Once they are in place, the overlay option within WoWpadX settings will become available.
 
-
 ## **Alternatives**
 
 ### **Linux** 
@@ -100,4 +115,4 @@ After building, simply place both WoWpadXOverlay.dll and WoWpadXOverlayLoader.ex
 * AntiMicroX 
 * Steam Input
 
-[Download Latest Release](https://github.com/leoaviana/WoWpadX/releases/latest)
+[Download Latest Release](https://github.com/Shashakar/WoWpadX-xbox/releases/latest)
