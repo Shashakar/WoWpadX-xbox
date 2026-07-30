@@ -8,6 +8,8 @@ on:
 permissions:
   actions: read
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   publish:
@@ -67,7 +69,7 @@ jobs:
           `d9c24cb8fb1e49e7836efa5562f157e9e4aceb6244907489f0906f5f1eff46eb`
           EOF
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,3 +93,14 @@ jobs:
               --notes-file release-notes.md \
               --latest
           fi
+
+      - name: Confirm release on PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RELEASE_URL="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url)"
+          ASSET_COUNT="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '[.assets[] | select(.name == env.ASSET)] | length')"
+          test "${ASSET_COUNT}" = "1"
+          gh pr comment 1 --repo "${GITHUB_REPOSITORY}" --body "Release published and verified: [${TAG}](${RELEASE_URL}) with asset \`${ASSET}\` (SHA-256 \`${VERIFIED_ARTIFACT_SHA256}\`)."
