@@ -1,0 +1,93 @@
+name: Publish Xbox FSE release
+
+on:
+  push:
+    branches:
+      - release/publish-v1.0.0-xbox-fse.1
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TAG: v1.0.0-xbox-fse.1
+      ASSET: WoWpadX-xbox-release-windows-x64.zip
+      VERIFIED_ARTIFACT_ID: "8738307139"
+      VERIFIED_ARTIFACT_SHA256: d9c24cb8fb1e49e7836efa5562f157e9e4aceb6244907489f0906f5f1eff46eb
+      RELEASE_TARGET: 0bd5da96b7b3ffd4057a869bd151b415a2b19c25
+    steps:
+      - name: Download verified Windows artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --location \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${VERIFIED_ARTIFACT_ID}/zip" \
+            --output "${ASSET}"
+          echo "${VERIFIED_ARTIFACT_SHA256}  ${ASSET}" | sha256sum --check
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## Xbox Full Screen Experience support
+
+          This fork adds direct controller support for the Xbox ROG Ally X while Windows is booted into Xbox Full Screen Experience. WoWpadX no longer requires a Desktop-mode transition before controller input works.
+
+          Validated on Xbox ROG Ally X with Ascension WoW:
+
+          - direct Xbox-mode startup through Task Scheduler
+          - face buttons, shoulders, D-pad, Start/Back, and stick clicks
+          - both analog sticks
+          - both triggers
+          - selectable modifier profiles
+          - Ascension WoW process detection
+
+          ## Installation
+
+          Extract the complete ZIP into a dedicated folder. When using Task Scheduler, set **Program/script** to `WoWpadX.exe`, set **Start in** to that folder, and enable **Run with highest privileges** when the game also runs elevated.
+
+          ## Windows Defender
+
+          This portable build is unsigned and performs controller HID reads plus keyboard/mouse input generation. Windows Defender may block or terminate it, sometimes appearing in Task Scheduler as `0x8007042B`.
+
+          Keep Defender enabled. Review **Windows Security → Virus & threat protection → Protection history** first. When an exclusion is necessary, exclude only `WoWpadX.exe` or its dedicated installation folder. Do not exclude broad folders such as Desktop or Downloads.
+
+          ## Verification
+
+          SHA-256 for `WoWpadX-xbox-release-windows-x64.zip`:
+
+          `d9c24cb8fb1e49e7836efa5562f157e9e4aceb6244907489f0906f5f1eff46eb`
+          EOF
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSET}#WoWpadX Xbox FSE Windows x64" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+            gh release edit "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "WoWpadX Xbox FSE 1.0.0-1" \
+              --notes-file release-notes.md \
+              --target "${RELEASE_TARGET}" \
+              --latest
+          else
+            gh release create "${TAG}" "${ASSET}#WoWpadX Xbox FSE Windows x64" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${RELEASE_TARGET}" \
+              --title "WoWpadX Xbox FSE 1.0.0-1" \
+              --notes-file release-notes.md \
+              --latest
+          fi
