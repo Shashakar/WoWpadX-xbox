@@ -18,6 +18,99 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Apply dual-trigger validation patch
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path("WoWpadX/RawInputGamepad.cpp")
+          text = path.read_text(encoding="utf-8-sig")
+          text = text.replace("#include <atomic>\n", "#include <atomic>\n#include <chrono>\n", 1)
+
+          anchor = "    ControllerState currentState;\n\n    // Owned exclusively by the Raw Input message thread.\n"
+          replacement = """    ControllerState currentState;\n\n    struct TriggerCombinationState\n    {\n        bool centerCandidate = false;\n        bool bothHeld = false;\n        std::chrono::steady_clock::time_point centerSince{};\n    };\n\n    TriggerCombinationState triggerCombinationState;\n\n    // Owned exclusively by the Raw Input message thread.\n"""
+          if "struct TriggerCombinationState" not in text:
+              if anchor not in text:
+                  raise SystemExit("controller state anchor not found")
+              text = text.replace(anchor, replacement, 1)
+
+          function = r'''    void ParseAllyAxes(
+              const BYTE* report,
+              ULONG reportLength,
+              ControllerState& state)
+          {
+              if (reportLength < 11)
+                  return;
+
+              state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
+              state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
+              state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
+              state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
+              state.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
+              state.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
+
+              state.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeStick(report[2]);
+              state.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeStick(report[4]);
+              state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeStick(report[6]);
+              state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeStick(report[8]);
+
+              constexpr int triggerCenter = 128;
+              constexpr int bothCenterTolerance = 6;
+              constexpr int bothReleaseTolerance = 12;
+              constexpr auto bothHoldDelay = std::chrono::milliseconds(45);
+
+              const int combinedTrigger = static_cast<int>(report[10]);
+              const bool anyTriggerDigitallyPressed = (report[9] & 0x80) != 0;
+              const int distanceFromCenter = std::abs(combinedTrigger - triggerCenter);
+              const auto now = std::chrono::steady_clock::now();
+
+              if (!anyTriggerDigitallyPressed) {
+                  triggerCombinationState = {};
+              }
+              else if (distanceFromCenter <= bothCenterTolerance) {
+                  if (!triggerCombinationState.centerCandidate) {
+                      triggerCombinationState.centerCandidate = true;
+                      triggerCombinationState.centerSince = now;
+                  }
+                  else if (now - triggerCombinationState.centerSince >= bothHoldDelay) {
+                      triggerCombinationState.bothHeld = true;
+                  }
+              }
+              else {
+                  triggerCombinationState.centerCandidate = false;
+                  if (triggerCombinationState.bothHeld &&
+                      distanceFromCenter > bothReleaseTolerance) {
+                      triggerCombinationState.bothHeld = false;
+                  }
+              }
+
+              if (triggerCombinationState.bothHeld) {
+                  state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = 32767;
+                  state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = 32767;
+                  return;
+              }
+
+              const int leftMagnitude = combinedTrigger < triggerCenter
+                  ? triggerCenter - combinedTrigger
+                  : 0;
+              const int rightMagnitude = combinedTrigger > triggerCenter
+                  ? combinedTrigger - triggerCenter
+                  : 0;
+
+              state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] =
+                  NormalizeTriggerMagnitude(leftMagnitude, triggerCenter);
+              state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
+                  NormalizeTriggerMagnitude(rightMagnitude, 127);
+          }
+
+'''
+          pattern = re.compile(r"    void ParseAllyAxes\(.*?\n    \}\n\n    bool LoadDevice", re.DOTALL)
+          if not pattern.search(text):
+              raise SystemExit("ParseAllyAxes not found")
+          text = pattern.sub(function + "    bool LoadDevice", text, count=1)
+          path.write_text(text, encoding="utf-8")
+
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -98,6 +191,6 @@ jobs:
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
-          name: WoWpadX-xbox-windows-x64
+          name: WoWpadX-xbox-dual-trigger-test-windows-x64
           path: artifact
           if-no-files-found: error
