@@ -49,10 +49,15 @@ namespace
 
     struct TriggerCombinationState
     {
-        bool centerCandidate = false;
+        bool digitalActive = false;
+        int initialSide = 0;
         bool bothHeld = false;
-        std::chrono::steady_clock::time_point centerSince{};
+        bool releaseArmed = false;
+        int lastCombined = 128;
+        std::chrono::steady_clock::time_point stableSince{};
     };
+
+    TriggerCombinationState triggerCombinationState;
 
     std::atomic<bool> started = false;
     std::mutex stateMutex;
@@ -271,42 +276,66 @@ namespace
         state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeStick(report[6]);
         state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeStick(report[8]);
 
-        // The Ally compatibility report combines both triggers on byte 10.
-        // Byte 9 bit 7 remains set while at least one trigger is physically
-        // pressed. When both are held with similar pressure, byte 10 returns
-        // close to its neutral value even though that digital bit stays set.
-        // Require the condition to persist briefly so releasing one trigger
-        // does not momentarily activate the LT+RT modifier layer.
         constexpr int triggerCenter = 128;
-        constexpr int bothCenterTolerance = 6;
-        constexpr int bothReleaseTolerance = 12;
-        constexpr auto bothHoldDelay = std::chrono::milliseconds(45);
+        constexpr int sideThreshold = 10;
+        constexpr int stableNoise = 2;
+        constexpr int releaseMovement = 12;
+        constexpr auto releaseArmDelay = std::chrono::milliseconds(80);
 
         const int combinedTrigger = static_cast<int>(report[10]);
-        const bool anyTriggerDigitallyPressed = (report[9] & 0x80) != 0;
-        const int distanceFromCenter =
-            std::abs(combinedTrigger - triggerCenter);
+        const bool digitalTrigger = (report[9] & 0x80) != 0;
+        const int side = combinedTrigger < triggerCenter - sideThreshold
+            ? -1
+            : combinedTrigger > triggerCenter + sideThreshold
+                ? 1
+                : 0;
         const auto now = std::chrono::steady_clock::now();
 
-        if (!anyTriggerDigitallyPressed) {
+        if (!digitalTrigger) {
             triggerCombinationState = {};
         }
-        else if (distanceFromCenter <= bothCenterTolerance) {
-            if (!triggerCombinationState.centerCandidate) {
-                triggerCombinationState.centerCandidate = true;
-                triggerCombinationState.centerSince = now;
+        else if (!triggerCombinationState.digitalActive) {
+            triggerCombinationState.digitalActive = true;
+            triggerCombinationState.initialSide = side;
+            triggerCombinationState.lastCombined = combinedTrigger;
+            triggerCombinationState.stableSince = now;
+        }
+        else if (!triggerCombinationState.bothHeld) {
+            if (triggerCombinationState.initialSide == 0 && side != 0) {
+                triggerCombinationState.initialSide = side;
             }
-            else if (now - triggerCombinationState.centerSince >=
-                     bothHoldDelay) {
+            else if (side != 0 &&
+                     triggerCombinationState.initialSide != 0 &&
+                     side != triggerCombinationState.initialSide) {
                 triggerCombinationState.bothHeld = true;
+                triggerCombinationState.releaseArmed = false;
+                triggerCombinationState.stableSince = now;
             }
+            triggerCombinationState.lastCombined = combinedTrigger;
         }
         else {
-            triggerCombinationState.centerCandidate = false;
-            if (triggerCombinationState.bothHeld &&
-                distanceFromCenter > bothReleaseTolerance) {
-                triggerCombinationState.bothHeld = false;
+            const int movement = std::abs(
+                combinedTrigger - triggerCombinationState.lastCombined);
+
+            if (!triggerCombinationState.releaseArmed) {
+                if (movement <= stableNoise) {
+                    if (now - triggerCombinationState.stableSince >=
+                        releaseArmDelay) {
+                        triggerCombinationState.releaseArmed = true;
+                    }
+                }
+                else {
+                    triggerCombinationState.stableSince = now;
+                }
             }
+            else if (movement >= releaseMovement) {
+                triggerCombinationState.bothHeld = false;
+                triggerCombinationState.initialSide = side;
+                triggerCombinationState.releaseArmed = false;
+                triggerCombinationState.stableSince = now;
+            }
+
+            triggerCombinationState.lastCombined = combinedTrigger;
         }
 
         if (triggerCombinationState.bothHeld) {
