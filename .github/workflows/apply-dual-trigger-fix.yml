@@ -25,19 +25,21 @@ jobs:
           path = Path("WoWpadX/RawInputGamepad.cpp")
           text = path.read_text(encoding="utf-8-sig")
 
-          if "#include <chrono>" not in text:
-              text = text.replace(
-                  "#include <atomic>\n",
-                  "#include <atomic>\n#include <chrono>\n",
-                  1,
-              )
+          if "struct TriggerCombinationState" in text:
+              print("Dual-trigger source patch is already present.")
+              raise SystemExit(0)
+
+          text = text.replace(
+              "#include <atomic>\n",
+              "#include <atomic>\n#include <chrono>\n#include <cstdlib>\n",
+              1,
+          )
 
           state_anchor = """    ControllerState currentState;\n\n    // Owned exclusively by the Raw Input message thread.\n"""
           state_replacement = """    ControllerState currentState;\n\n    struct TriggerCombinationState\n    {\n        bool centerCandidate = false;\n        bool bothHeld = false;\n        std::chrono::steady_clock::time_point centerSince{};\n    };\n\n    TriggerCombinationState triggerCombinationState;\n\n    // Owned exclusively by the Raw Input message thread.\n"""
-          if "struct TriggerCombinationState" not in text:
-              if state_anchor not in text:
-                  raise SystemExit("Could not locate controller-state anchor")
-              text = text.replace(state_anchor, state_replacement, 1)
+          if state_anchor not in text:
+              raise SystemExit("Could not locate controller-state anchor")
+          text = text.replace(state_anchor, state_replacement, 1)
 
           new_function = r'''    void ParseAllyAxes(
               const BYTE* report,
@@ -59,16 +61,6 @@ jobs:
               state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeStick(report[6]);
               state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeStick(report[8]);
 
-              // The Ally compatibility report combines both analog triggers on
-              // byte 10. Byte 9 bit 7 remains set while at least one trigger is
-              // physically past its click threshold. When both triggers are held
-              // with similar pressure, byte 10 returns to its neutral value (128)
-              // even though byte 9 remains set.
-              //
-              // A single trigger release also passes through neutral briefly, so
-              // require the neutral-plus-digital condition to remain stable before
-              // exposing both trigger axes. The next face-button report gives this
-              // detector another sample even when the trigger values stop changing.
               constexpr int triggerCenter = 128;
               constexpr int bothCenterTolerance = 6;
               constexpr int bothReleaseTolerance = 12;
@@ -128,16 +120,25 @@ jobs:
           )
           if not pattern.search(text):
               raise SystemExit("Could not locate ParseAllyAxes")
-          text = pattern.sub(new_function + "    bool LoadDevice", text, count=1)
+
+          text = pattern.sub(
+              new_function + "    bool LoadDevice",
+              text,
+              count=1,
+          )
           path.write_text(text, encoding="utf-8")
 
-      - name: Commit source fix and remove one-time workflow
+      - name: Commit source fix when changed
         shell: bash
         run: |
           set -euo pipefail
+          if git diff --quiet -- WoWpadX/RawInputGamepad.cpp; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/apply-dual-trigger-fix.yml
           git add WoWpadX/RawInputGamepad.cpp
           git commit -m "Support simultaneous Ally trigger modifiers"
           git push origin HEAD:agent/fix-dual-trigger-combo
