@@ -45,14 +45,6 @@ namespace
         std::vector<HIDP_VALUE_CAPS> valueCaps;
     };
 
-    struct HidValue
-    {
-        bool available = false;
-        LONG value = 0;
-        LONG logicalMin = 0;
-        LONG logicalMax = 0;
-    };
-
     std::atomic<bool> started = false;
     std::mutex stateMutex;
     ControllerState currentState;
@@ -87,14 +79,20 @@ namespace
     QString DevicePath(HANDLE device)
     {
         UINT characterCount = 0;
-        if (GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, nullptr,
+        if (GetRawInputDeviceInfoW(
+                device,
+                RIDI_DEVICENAME,
+                nullptr,
                 &characterCount) == static_cast<UINT>(-1) ||
             characterCount == 0) {
             return {};
         }
 
         std::vector<wchar_t> buffer(characterCount + 1, L'\0');
-        if (GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, buffer.data(),
+        if (GetRawInputDeviceInfoW(
+                device,
+                RIDI_DEVICENAME,
+                buffer.data(),
                 &characterCount) == static_cast<UINT>(-1)) {
             return {};
         }
@@ -125,7 +123,8 @@ namespace
         std::vector<USAGE> usages;
         if (cap.IsRange) {
             for (USAGE usage = cap.Range.UsageMin;
-                 usage <= cap.Range.UsageMax; ++usage) {
+                 usage <= cap.Range.UsageMax;
+                 ++usage) {
                 usages.push_back(usage);
                 if (usage == std::numeric_limits<USAGE>::max())
                     break;
@@ -137,89 +136,31 @@ namespace
         return usages;
     }
 
-    bool CapContainsUsage(const HIDP_VALUE_CAPS& cap, USAGE usage)
+    uint16_t ReadLittleEndian16(const BYTE* report, size_t offset)
     {
-        if (cap.IsRange)
-            return usage >= cap.Range.UsageMin && usage <= cap.Range.UsageMax;
-        return cap.NotRange.Usage == usage;
+        return static_cast<uint16_t>(report[offset]) |
+            (static_cast<uint16_t>(report[offset + 1]) << 8);
     }
 
-    LONG DecodeLogicalValue(ULONG rawValue, const HIDP_VALUE_CAPS& cap)
+    Sint16 NormalizeRawStick16(uint16_t value)
     {
-        if (cap.LogicalMin >= 0 || cap.BitSize == 0 || cap.BitSize >= 32)
-            return static_cast<LONG>(rawValue);
-
-        const ULONG signBit = 1UL << (cap.BitSize - 1);
-        if ((rawValue & signBit) == 0)
-            return static_cast<LONG>(rawValue);
-
-        const ULONG mask = (1UL << cap.BitSize) - 1UL;
-        return static_cast<LONG>(rawValue | ~mask);
-    }
-
-    HidValue ReadGenericUsage(DeviceContext& device, const BYTE* report,
-        ULONG reportLength, USAGE usage)
-    {
-        auto preparsed = reinterpret_cast<PHIDP_PREPARSED_DATA>(
-            device.preparsedData.data());
-
-        for (const HIDP_VALUE_CAPS& cap : device.valueCaps) {
-            if (cap.UsagePage != HID_USAGE_PAGE_GENERIC ||
-                !CapContainsUsage(cap, usage)) {
-                continue;
-            }
-
-            ULONG rawValue = 0;
-            const NTSTATUS result = HidP_GetUsageValue(
-                HidP_Input, cap.UsagePage, cap.LinkCollection, usage,
-                &rawValue, preparsed,
-                reinterpret_cast<PCHAR>(const_cast<BYTE*>(report)),
-                reportLength);
-            if (result != HIDP_STATUS_SUCCESS)
-                continue;
-
-            HidValue value;
-            value.available = true;
-            value.value = DecodeLogicalValue(rawValue, cap);
-            value.logicalMin = cap.LogicalMin;
-            value.logicalMax = cap.LogicalMax;
-            return value;
-        }
-
-        return {};
-    }
-
-    Sint16 NormalizeSignedAxis(const HidValue& value)
-    {
-        if (!value.available || value.logicalMax <= value.logicalMin)
-            return 0;
-
-        const double normalized =
-            (static_cast<double>(value.value - value.logicalMin) /
-             static_cast<double>(value.logicalMax - value.logicalMin)) * 2.0 - 1.0;
         return static_cast<Sint16>(
-            std::clamp(normalized, -1.0, 1.0) * 32767.0);
+            std::clamp(static_cast<int>(value) - 32768, -32768, 32767));
     }
 
-    Sint16 NormalizeTrigger(const HidValue& value)
+    Sint16 NormalizeRawTrigger(int value)
     {
-        if (!value.available || value.logicalMax <= value.logicalMin)
-            return 0;
-
-        const double normalized =
-            static_cast<double>(value.value - value.logicalMin) /
-            static_cast<double>(value.logicalMax - value.logicalMin);
+        constexpr int triggerMaximum = 1023;
+        const int clamped = std::clamp(value, 0, triggerMaximum);
         return static_cast<Sint16>(
-            std::clamp(normalized, 0.0, 1.0) * 32767.0);
+            static_cast<uint32_t>(clamped) * 32767u / triggerMaximum);
     }
 
-    Sint16 NormalizeLegacyStick(BYTE value)
-    {
-        return static_cast<Sint16>((static_cast<int>(value) - 128) * 256);
-    }
-
-    void ParseButtons(DeviceContext& device, const BYTE* report,
-        ULONG reportLength, ControllerState& state)
+    void ParseButtons(
+        DeviceContext& device,
+        const BYTE* report,
+        ULONG reportLength,
+        ControllerState& state)
     {
         auto preparsed = reinterpret_cast<PHIDP_PREPARSED_DATA>(
             device.preparsedData.data());
@@ -240,10 +181,15 @@ namespace
 
             std::vector<USAGE> activeUsages(activeCount);
             const NTSTATUS result = HidP_GetUsages(
-                HidP_Input, cap.UsagePage, cap.LinkCollection,
-                activeUsages.data(), &activeCount, preparsed,
+                HidP_Input,
+                cap.UsagePage,
+                cap.LinkCollection,
+                activeUsages.data(),
+                &activeCount,
+                preparsed,
                 reinterpret_cast<PCHAR>(const_cast<BYTE*>(report)),
                 reportLength);
+
             if (result != HIDP_STATUS_SUCCESS)
                 continue;
 
@@ -254,96 +200,112 @@ namespace
         }
     }
 
-    void ParseDPad(DeviceContext& device, const BYTE* report,
-        ULONG reportLength, ControllerState& state)
+    void ParseDPad(
+        DeviceContext& device,
+        const BYTE* report,
+        ULONG reportLength,
+        ControllerState& state)
     {
-        const HidValue hat = ReadGenericUsage(
-            device, report, reportLength, HID_USAGE_GENERIC_HATSWITCH);
-        if (!hat.available)
+        auto preparsed = reinterpret_cast<PHIDP_PREPARSED_DATA>(
+            device.preparsedData.data());
+
+        for (const HIDP_VALUE_CAPS& cap : device.valueCaps) {
+            if (cap.UsagePage != HID_USAGE_PAGE_GENERIC)
+                continue;
+
+            USAGE usage = 0;
+            if (cap.IsRange) {
+                if (HID_USAGE_GENERIC_HATSWITCH < cap.Range.UsageMin ||
+                    HID_USAGE_GENERIC_HATSWITCH > cap.Range.UsageMax) {
+                    continue;
+                }
+                usage = HID_USAGE_GENERIC_HATSWITCH;
+            }
+            else {
+                usage = cap.NotRange.Usage;
+                if (usage != HID_USAGE_GENERIC_HATSWITCH)
+                    continue;
+            }
+
+            ULONG value = 0;
+            if (HidP_GetUsageValue(
+                    HidP_Input,
+                    cap.UsagePage,
+                    cap.LinkCollection,
+                    usage,
+                    &value,
+                    preparsed,
+                    reinterpret_cast<PCHAR>(const_cast<BYTE*>(report)),
+                    reportLength) != HIDP_STATUS_SUCCESS) {
+                continue;
+            }
+
+            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_UP] = true;
+            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] = true;
+            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_DOWN] = true;
+            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_LEFT] = true;
+
+            const int position = static_cast<int>(value) - cap.LogicalMin;
+            if (position < 0 || position > 7)
+                return;
+
+            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_UP] =
+                position == 0 || position == 1 || position == 7;
+            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] =
+                position == 1 || position == 2 || position == 3;
+            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_DOWN] =
+                position == 3 || position == 4 || position == 5;
+            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_LEFT] =
+                position == 5 || position == 6 || position == 7;
             return;
-
-        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_UP] = true;
-        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] = true;
-        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_DOWN] = true;
-        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_LEFT] = true;
-
-        const int position = static_cast<int>(hat.value - hat.logicalMin);
-        if (position < 0 || position > 7)
-            return;
-
-        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_UP] =
-            position == 0 || position == 1 || position == 7;
-        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] =
-            position == 1 || position == 2 || position == 3;
-        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_DOWN] =
-            position == 3 || position == 4 || position == 5;
-        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_LEFT] =
-            position == 5 || position == 6 || position == 7;
+        }
     }
 
-    void ParseAllyAxes(DeviceContext& device, const BYTE* report,
-        ULONG reportLength, ControllerState& state)
+    void ParseAllyAxes(
+        const BYTE* report,
+        ULONG reportLength,
+        ControllerState& state)
     {
-        const HidValue leftX = ReadGenericUsage(
-            device, report, reportLength, HID_USAGE_GENERIC_X);
-        const HidValue leftY = ReadGenericUsage(
-            device, report, reportLength, HID_USAGE_GENERIC_Y);
-        const HidValue rightX = ReadGenericUsage(
-            device, report, reportLength, HID_USAGE_GENERIC_RX);
-        const HidValue rightY = ReadGenericUsage(
-            device, report, reportLength, HID_USAGE_GENERIC_RY);
-        const HidValue leftTrigger = ReadGenericUsage(
-            device, report, reportLength, HID_USAGE_GENERIC_Z);
-        const HidValue rightTrigger = ReadGenericUsage(
-            device, report, reportLength, HID_USAGE_GENERIC_RZ);
+        if (reportLength < 13)
+            return;
 
-        if (leftX.available) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
-            state.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeSignedAxis(leftX);
-        }
-        else if (reportLength > 2) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
-            state.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeLegacyStick(report[2]);
-        }
+        state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
 
-        if (leftY.available) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
-            state.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeSignedAxis(leftY);
-        }
-        else if (reportLength > 4) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
-            state.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeLegacyStick(report[4]);
-        }
+        state.axes[SDL_GAMEPAD_AXIS_LEFTX] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 1));
+        state.axes[SDL_GAMEPAD_AXIS_LEFTY] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 3));
+        state.axes[SDL_GAMEPAD_AXIS_RIGHTX] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 5));
+        state.axes[SDL_GAMEPAD_AXIS_RIGHTY] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 7));
 
-        if (rightX.available) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
-            state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeSignedAxis(rightX);
-        }
-        else if (reportLength > 6) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
-            state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeLegacyStick(report[6]);
-        }
+        // The Windows compatibility report exposes Z as a centered difference
+        // axis (RT - LT), while Rz contains the independent RT magnitude.
+        // Reconstruct LT algebraically instead of inferring it from timing.
+        constexpr int axisCenter = 32768;
+        constexpr int triggerMaximum = 1023;
 
-        if (rightY.available) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
-            state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeSignedAxis(rightY);
-        }
-        else if (reportLength > 8) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
-            state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeLegacyStick(report[8]);
-        }
+        const int signedDifference =
+            static_cast<int>(ReadLittleEndian16(report, 9)) - axisCenter;
+        const int rightTrigger = std::clamp(
+            static_cast<int>(ReadLittleEndian16(report, 11)),
+            0,
+            triggerMaximum);
+        const int leftTrigger = std::clamp(
+            rightTrigger - signedDifference,
+            0,
+            triggerMaximum);
 
-        if (leftTrigger.available) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
-            state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] =
-                NormalizeTrigger(leftTrigger);
-        }
-
-        if (rightTrigger.available) {
-            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
-            state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
-                NormalizeTrigger(rightTrigger);
-        }
+        state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] =
+            NormalizeRawTrigger(leftTrigger);
+        state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
+            NormalizeRawTrigger(rightTrigger);
     }
 
     bool LoadDevice(HANDLE handle, DeviceContext& output)
@@ -352,7 +314,10 @@ namespace
         info.cbSize = sizeof(info);
         UINT infoSize = sizeof(info);
 
-        if (GetRawInputDeviceInfoW(handle, RIDI_DEVICEINFO, &info,
+        if (GetRawInputDeviceInfoW(
+                handle,
+                RIDI_DEVICEINFO,
+                &info,
                 &infoSize) == static_cast<UINT>(-1) ||
             info.dwType != RIM_TYPEHID ||
             info.hid.dwVendorId != kAsusVendorId ||
@@ -365,7 +330,10 @@ namespace
             return false;
 
         UINT preparsedSize = 0;
-        if (GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, nullptr,
+        if (GetRawInputDeviceInfoW(
+                handle,
+                RIDI_PREPARSEDDATA,
+                nullptr,
                 &preparsedSize) == static_cast<UINT>(-1) ||
             preparsedSize == 0) {
             return false;
@@ -376,9 +344,11 @@ namespace
         output.path = path;
         output.preparsedData.resize(preparsedSize);
 
-        if (GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA,
-                output.preparsedData.data(), &preparsedSize) ==
-            static_cast<UINT>(-1)) {
+        if (GetRawInputDeviceInfoW(
+                handle,
+                RIDI_PREPARSEDDATA,
+                output.preparsedData.data(),
+                &preparsedSize) == static_cast<UINT>(-1)) {
             return false;
         }
 
@@ -390,8 +360,11 @@ namespace
         USHORT buttonCount = output.caps.NumberInputButtonCaps;
         output.buttonCaps.resize(buttonCount);
         if (buttonCount > 0) {
-            if (HidP_GetButtonCaps(HidP_Input, output.buttonCaps.data(),
-                    &buttonCount, preparsed) != HIDP_STATUS_SUCCESS) {
+            if (HidP_GetButtonCaps(
+                    HidP_Input,
+                    output.buttonCaps.data(),
+                    &buttonCount,
+                    preparsed) != HIDP_STATUS_SUCCESS) {
                 output.buttonCaps.clear();
             }
             else {
@@ -402,8 +375,11 @@ namespace
         USHORT valueCount = output.caps.NumberInputValueCaps;
         output.valueCaps.resize(valueCount);
         if (valueCount > 0) {
-            if (HidP_GetValueCaps(HidP_Input, output.valueCaps.data(),
-                    &valueCount, preparsed) != HIDP_STATUS_SUCCESS) {
+            if (HidP_GetValueCaps(
+                    HidP_Input,
+                    output.valueCaps.data(),
+                    &valueCount,
+                    preparsed) != HIDP_STATUS_SUCCESS) {
                 output.valueCaps.clear();
             }
             else {
@@ -411,13 +387,14 @@ namespace
             }
         }
 
-        Log::writeLine(QString(
-            "[RawInput] Loaded Ally controller path=\"%1\" "
-            "reportBytes=%2 buttonCaps=%3 valueCaps=%4")
-            .arg(output.path)
-            .arg(output.caps.InputReportByteLength)
-            .arg(output.buttonCaps.size())
-            .arg(output.valueCaps.size()));
+        Log::writeLine(
+            QString(
+                "[RawInput] Loaded Ally controller path=\"%1\" "
+                "reportBytes=%2 buttonCaps=%3 valueCaps=%4")
+                .arg(output.path)
+                .arg(output.caps.InputReportByteLength)
+                .arg(output.buttonCaps.size())
+                .arg(output.valueCaps.size()));
         return true;
     }
 
@@ -445,17 +422,24 @@ namespace
     void ProcessRawInput(HRAWINPUT rawInputHandle)
     {
         UINT requiredSize = 0;
-        if (GetRawInputData(rawInputHandle, RID_INPUT, nullptr,
-                &requiredSize, sizeof(RAWINPUTHEADER)) != 0 ||
+        if (GetRawInputData(
+                rawInputHandle,
+                RID_INPUT,
+                nullptr,
+                &requiredSize,
+                sizeof(RAWINPUTHEADER)) != 0 ||
             requiredSize == 0) {
             return;
         }
 
         std::vector<BYTE> storage(requiredSize);
         UINT actualSize = requiredSize;
-        if (GetRawInputData(rawInputHandle, RID_INPUT, storage.data(),
-                &actualSize, sizeof(RAWINPUTHEADER)) ==
-            static_cast<UINT>(-1)) {
+        if (GetRawInputData(
+                rawInputHandle,
+                RID_INPUT,
+                storage.data(),
+                &actualSize,
+                sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1)) {
             return;
         }
 
@@ -476,18 +460,22 @@ namespace
             ControllerState state;
             ParseButtons(*device, report, reportLength, state);
             ParseDPad(*device, report, reportLength, state);
-            ParseAllyAxes(*device, report, reportLength, state);
+            ParseAllyAxes(report, reportLength, state);
             Publish(state);
         }
     }
 
-    LRESULT CALLBACK WindowProcedure(HWND window, UINT message,
-        WPARAM wParam, LPARAM lParam)
+    LRESULT CALLBACK WindowProcedure(
+        HWND window,
+        UINT message,
+        WPARAM wParam,
+        LPARAM lParam)
     {
         switch (message) {
         case WM_INPUT:
             ProcessRawInput(reinterpret_cast<HRAWINPUT>(lParam));
             return DefWindowProcW(window, message, wParam, lParam);
+
         case WM_INPUT_DEVICE_CHANGE:
             if (wParam == GIDC_REMOVAL) {
                 const auto key = reinterpret_cast<std::uintptr_t>(
@@ -500,10 +488,12 @@ namespace
                 GetDevice(reinterpret_cast<HANDLE>(lParam));
             }
             return 0;
+
         case WM_DESTROY:
             ClearPublishedState(true);
             PostQuitMessage(0);
             return 0;
+
         default:
             return DefWindowProcW(window, message, wParam, lParam);
         }
@@ -520,17 +510,30 @@ namespace
 
         if (!RegisterClassW(&windowClass) &&
             GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-            Log::writeLine("[RawInput] Failed to register Ally input window. Error=" +
+            Log::writeLine(
+                "[RawInput] Failed to register Ally input window. Error=" +
                 QString::number(GetLastError()));
             ClearPublishedState(true);
             return;
         }
 
-        HWND window = CreateWindowExW(0, kWindowClass,
-            L"WoWpadX Ally Raw Input", 0, 0, 0, 0, 0, HWND_MESSAGE,
-            nullptr, instance, nullptr);
+        HWND window = CreateWindowExW(
+            0,
+            kWindowClass,
+            L"WoWpadX Ally Raw Input",
+            0,
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            nullptr,
+            instance,
+            nullptr);
+
         if (!window) {
-            Log::writeLine("[RawInput] Failed to create Ally input window. Error=" +
+            Log::writeLine(
+                "[RawInput] Failed to create Ally input window. Error=" +
                 QString::number(GetLastError()));
             ClearPublishedState(true);
             return;
@@ -545,10 +548,12 @@ namespace
               RIDEV_INPUTSINK | RIDEV_DEVNOTIFY, window },
         };
 
-        if (!RegisterRawInputDevices(registrations,
+        if (!RegisterRawInputDevices(
+                registrations,
                 static_cast<UINT>(std::size(registrations)),
                 sizeof(RAWINPUTDEVICE))) {
-            Log::writeLine("[RawInput] Failed to register Ally controller. Error=" +
+            Log::writeLine(
+                "[RawInput] Failed to register Ally controller. Error=" +
                 QString::number(GetLastError()));
             ClearPublishedState(true);
             DestroyWindow(window);
@@ -558,10 +563,14 @@ namespace
         Log::writeLine("[RawInput] Registered Ally controller backend.");
 
         UINT deviceCount = 0;
-        if (GetRawInputDeviceList(nullptr, &deviceCount,
+        if (GetRawInputDeviceList(
+                nullptr,
+                &deviceCount,
                 sizeof(RAWINPUTDEVICELIST)) != static_cast<UINT>(-1)) {
             std::vector<RAWINPUTDEVICELIST> deviceList(deviceCount);
-            if (GetRawInputDeviceList(deviceList.data(), &deviceCount,
+            if (GetRawInputDeviceList(
+                    deviceList.data(),
+                    &deviceCount,
                     sizeof(RAWINPUTDEVICELIST)) != static_cast<UINT>(-1)) {
                 for (const RAWINPUTDEVICELIST& entry : deviceList) {
                     if (entry.dwType == RIM_TYPEHID)
