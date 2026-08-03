@@ -4,14 +4,11 @@
 #include <Windows.h>
 #include "Gamepad/gamepad.h"
 
-
-// Represents a single keybind between a gamepad button and a virtual key
 struct Keybind {
     GamepadBinding bindType;
-    int virtualKey; // Using Windows virtual-key codes (VK_*)
-} ;
+    int virtualKey;
+};
 
-// Container for a full set of keybindings
 struct Keybinds {
     std::vector<Keybind> bindings;
 
@@ -21,30 +18,30 @@ struct Keybinds {
 namespace KeybindDefaults {
 
     inline std::vector<Keybind> defaultBase = {
-        { GamepadBinding::North, VK_F9 },     // RFaceUp
-        { GamepadBinding::East, VK_F10 },    // RFaceRight
-        { GamepadBinding::South, VK_F11 },    // RFaceDown
-        { GamepadBinding::West, VK_F12 },    // RFaceLeft
+        { GamepadBinding::North, VK_F9 },
+        { GamepadBinding::East, VK_F10 },
+        { GamepadBinding::South, VK_F11 },
+        { GamepadBinding::West, VK_F12 },
 
-        { GamepadBinding::DPadUp, VK_F1 },  // LFaceUp (custom mapping)
-        { GamepadBinding::DPadRight, VK_F2 },// LFaceRight (custom)
-        { GamepadBinding::DPadDown, VK_F3 },// LFaceDown (custom)
-        { GamepadBinding::DPadLeft, VK_F4 },// LFaceLeft (custom)
+        { GamepadBinding::DPadUp, VK_F1 },
+        { GamepadBinding::DPadRight, VK_F2 },
+        { GamepadBinding::DPadDown, VK_F3 },
+        { GamepadBinding::DPadLeft, VK_F4 },
 
         { GamepadBinding::Back, VK_F5 },
         { GamepadBinding::Start, VK_F6 },
         { GamepadBinding::Guide, VK_MULTIPLY },
 
-        { GamepadBinding::LeftStickUp, 'W' }, // LeftStickUp
-        { GamepadBinding::LeftStickLeft, 'A' }, // LeftStickLeft
-        { GamepadBinding::LeftStickDown, 'S' }, // LeftStickDown
-        { GamepadBinding::LeftStickRight, 'D' }, // LeftStickRight
-        { GamepadBinding::LeftStickHorz, 'H' }, // LeftStickHorz (used for 16 way movement)
-        { GamepadBinding::LeftStickVert, 'V' }, // LeftStickVert (used for 16 way movement)
+        { GamepadBinding::LeftStickUp, 'W' },
+        { GamepadBinding::LeftStickLeft, 'A' },
+        { GamepadBinding::LeftStickDown, 'S' },
+        { GamepadBinding::LeftStickRight, 'D' },
+        { GamepadBinding::LeftStickHorz, 'H' },
+        { GamepadBinding::LeftStickVert, 'V' },
 
         { GamepadBinding::Misc1, VK_ADD },
-        { GamepadBinding::RightPaddle1, VK_NUMPAD0 }, 
-        { GamepadBinding::RightPaddle2, VK_NUMPAD1 }, 
+        { GamepadBinding::RightPaddle1, VK_NUMPAD0 },
+        { GamepadBinding::RightPaddle2, VK_NUMPAD1 },
         { GamepadBinding::LeftPaddle1, VK_NUMPAD2 },
         { GamepadBinding::LeftPaddle2, VK_NUMPAD3 },
     };
@@ -79,12 +76,26 @@ namespace KeybindDefaults {
             break;
         case 3:
             binds = {
-                { GamepadBinding::LeftTrigger , VK_F7 },
+                { GamepadBinding::LeftTrigger, VK_F7 },
                 { GamepadBinding::RightTrigger, VK_F8 },
                 { GamepadBinding::LeftShoulder, VK_LSHIFT },
                 { GamepadBinding::RightShoulder, VK_LCONTROL },
             };
             break;
+        case 4:
+            // M1/M2 are converted from F13/F14 to Shift/Ctrl by
+            // PaddleModifierInput. Keep the shoulder buttons as the normal
+            // ConsolePort L1/R1 actions and leave the ambiguous triggers
+            // unbound in this profile.
+            binds = {
+                { GamepadBinding::LeftShoulder, VK_F7 },
+                { GamepadBinding::RightShoulder, VK_F8 },
+                { GamepadBinding::LeftTrigger, 0 },
+                { GamepadBinding::RightTrigger, 0 },
+            };
+            break;
+        default:
+            return getDefault(0);
         }
 
         binds.insert(binds.end(), defaultBase.begin(), defaultBase.end());
