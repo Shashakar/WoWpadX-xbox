@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <limits>
 #include <mutex>
@@ -45,9 +47,17 @@ namespace
         std::vector<HIDP_VALUE_CAPS> valueCaps;
     };
 
+    struct TriggerCombinationState
+    {
+        bool centerCandidate = false;
+        bool bothHeld = false;
+        std::chrono::steady_clock::time_point centerSince{};
+    };
+
     std::atomic<bool> started = false;
     std::mutex stateMutex;
     ControllerState currentState;
+    TriggerCombinationState triggerCombinationState;
 
     // Owned exclusively by the Raw Input message thread.
     std::unordered_map<std::uintptr_t, DeviceContext> devices;
@@ -261,19 +271,59 @@ namespace
         state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeStick(report[6]);
         state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeStick(report[8]);
 
-        // The Ally compatibility HID report combines both triggers on byte 10.
-        // Neutral is 0x80. One trigger moves toward 0x00 and the other toward
-        // 0xFF, so split the two halves into SDL-compatible trigger axes.
+        // The Ally compatibility report combines both triggers on byte 10.
+        // Byte 9 bit 7 remains set while at least one trigger is physically
+        // pressed. When both are held with similar pressure, byte 10 returns
+        // close to its neutral value even though that digital bit stays set.
+        // Require the condition to persist briefly so releasing one trigger
+        // does not momentarily activate the LT+RT modifier layer.
+        constexpr int triggerCenter = 128;
+        constexpr int bothCenterTolerance = 6;
+        constexpr int bothReleaseTolerance = 12;
+        constexpr auto bothHoldDelay = std::chrono::milliseconds(45);
+
         const int combinedTrigger = static_cast<int>(report[10]);
-        const int leftMagnitude = combinedTrigger < 128
-            ? 128 - combinedTrigger
+        const bool anyTriggerDigitallyPressed = (report[9] & 0x80) != 0;
+        const int distanceFromCenter =
+            std::abs(combinedTrigger - triggerCenter);
+        const auto now = std::chrono::steady_clock::now();
+
+        if (!anyTriggerDigitallyPressed) {
+            triggerCombinationState = {};
+        }
+        else if (distanceFromCenter <= bothCenterTolerance) {
+            if (!triggerCombinationState.centerCandidate) {
+                triggerCombinationState.centerCandidate = true;
+                triggerCombinationState.centerSince = now;
+            }
+            else if (now - triggerCombinationState.centerSince >=
+                     bothHoldDelay) {
+                triggerCombinationState.bothHeld = true;
+            }
+        }
+        else {
+            triggerCombinationState.centerCandidate = false;
+            if (triggerCombinationState.bothHeld &&
+                distanceFromCenter > bothReleaseTolerance) {
+                triggerCombinationState.bothHeld = false;
+            }
+        }
+
+        if (triggerCombinationState.bothHeld) {
+            state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = 32767;
+            state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = 32767;
+            return;
+        }
+
+        const int leftMagnitude = combinedTrigger < triggerCenter
+            ? triggerCenter - combinedTrigger
             : 0;
-        const int rightMagnitude = combinedTrigger > 128
-            ? combinedTrigger - 128
+        const int rightMagnitude = combinedTrigger > triggerCenter
+            ? combinedTrigger - triggerCenter
             : 0;
 
         state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] =
-            NormalizeTriggerMagnitude(leftMagnitude, 128);
+            NormalizeTriggerMagnitude(leftMagnitude, triggerCenter);
         state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
             NormalizeTriggerMagnitude(rightMagnitude, 127);
     }
