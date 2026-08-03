@@ -1,0 +1,67 @@
+name: Apply transition trigger fix v2
+
+on:
+  push:
+    branches:
+      - agent/fix-dual-trigger-combo
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-dual-trigger-combo
+
+      - name: Apply committed source fix
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64
+          import re
+
+          path = Path("WoWpadX/RawInputGamepad.cpp")
+          text = path.read_text(encoding="utf-8-sig")
+
+          if "bool digitalActive = false;" in text:
+              print("Transition decoder already applied")
+              raise SystemExit(0)
+
+          state_b64 = "ICAgIHN0cnVjdCBUcmlnZ2VyQ29tYmluYXRpb25TdGF0ZQogICAgewogICAgICAgIGJvb2wgZGlnaXRhbEFjdGl2ZSA9IGZhbHNlOwogICAgICAgIGludCBpbml0aWFsU2lkZSA9IDA7CiAgICAgICAgYm9vbCBib3RoSGVsZCA9IGZhbHNlOwogICAgICAgIGJvb2wgcmVsZWFzZUFybWVkID0gZmFsc2U7CiAgICAgICAgaW50IGxhc3RDb21iaW5lZCA9IDEyODsKICAgICAgICBzdGQ6OmNocm9ubzo6c3RlYWR5X2Nsb2NrOjp0aW1lX3BvaW50IHN0YWJsZVNpbmNle307CiAgICB9OwoKICAgIFRyaWdnZXJDb21iaW5hdGlvblN0YXRlIHRyaWdnZXJDb21iaW5hdGlvblN0YXRlOw=="
+          func_b64 = "ICAgIHZvaWQgUGFyc2VBbGx5QXhlcygKICAgICAgICBjb25zdCBCWVRFKiByZXBvcnQsCiAgICAgICAgVUxPTkcgcmVwb3J0TGVuZ3RoLAogICAgICAgIENvbnRyb2xsZXJTdGF0ZSYgc3RhdGUpCiAgICB7CiAgICAgICAgaWYgKHJlcG9ydExlbmd0aCA8IDExKQogICAgICAgICAgICByZXR1cm47CgogICAgICAgIHN0YXRlLmF4aXNLbm93bltTRExfR0FNRVBBRF9BWElTX0xFRlRYXSA9IHRydWU7CiAgICAgICAgc3RhdGUuYXhpc0tub3duW1NETF9HQU1FUEFEX0FYSVNfTEVGVFldID0gdHJ1ZTsKICAgICAgICBzdGF0ZS5heGlzS25vd25bU0RMX0dBTUVQQURfQVhJU19SSUdIVFhdID0gdHJ1ZTsKICAgICAgICBzdGF0ZS5heGlzS25vd25bU0RMX0dBTUVQQURfQVhJU19SSUdIVFldID0gdHJ1ZTsKICAgICAgICBzdGF0ZS5heGlzS25vd25bU0RMX0dBTUVQQURfQVhJU19MRUZUX1RSSUdHRVJdID0gdHJ1ZTsKICAgICAgICBzdGF0ZS5heGlzS25vd25bU0RMX0dBTUVQQURfQVhJU19SSUdIVF9UUklHR0VSXSA9IHRydWU7CgogICAgICAgIHN0YXRlLmF4ZXNbU0RMX0dBTUVQQURfQVhJU19MRUZUWF0gPSBOb3JtYWxpemVTdGljayhyZXBvcnRbMl0pOwogICAgICAgIHN0YXRlLmF4ZXNbU0RMX0dBTUVQQURfQVhJU19MRUZUWV0gPSBOb3JtYWxpemVTdGljayhyZXBvcnRbNF0pOwogICAgICAgIHN0YXRlLmF4ZXNbU0RMX0dBTUVQQURfQVhJU19SSUdIVFhdID0gTm9ybWFsaXplU3RpY2socmVwb3J0WzZdKTsKICAgICAgICBzdGF0ZS5heGVzW1NETF9HQU1FUEFEX0FYSVNfUklHSFRZXSA9IE5vcm1hbGl6ZVN0aWNrKHJlcG9ydFs4XSk7CgogICAgICAgIGNvbnN0ZXhwciBpbnQgdHJpZ2dlckNlbnRlciA9IDEyODsKICAgICAgICBjb25zdGV4cHIgaW50IHNpZGVUaHJlc2hvbGQgPSAxMDsKICAgICAgICBjb25zdGV4cHIgaW50IHN0YWJsZU5vaXNlID0gMjsKICAgICAgICBjb25zdGV4cHIgaW50IHJlbGVhc2VNb3ZlbWVudCA9IDEyOwogICAgICAgIGNvbnN0ZXhwciBhdXRvIHJlbGVhc2VBcm1EZWxheSA9IHN0ZDo6Y2hyb25vOjptaWxsaXNlY29uZHMoODApOwoKICAgICAgICBjb25zdCBpbnQgY29tYmluZWRUcmlnZ2VyID0gc3RhdGljX2Nhc3Q8aW50PihyZXBvcnRbMTBdKTsKICAgICAgICBjb25zdCBib29sIGRpZ2l0YWxUcmlnZ2VyID0gKHJlcG9ydFs5XSAmIDB4ODApICE9IDA7CiAgICAgICAgY29uc3QgaW50IHNpZGUgPSBjb21iaW5lZFRyaWdnZXIgPCB0cmlnZ2VyQ2VudGVyIC0gc2lkZVRocmVzaG9sZAogICAgICAgICAgICA/IC0xCiAgICAgICAgICAgIDogY29tYmluZWRUcmlnZ2VyID4gdHJpZ2dlckNlbnRlciArIHNpZGVUaHJlc2hvbGQKICAgICAgICAgICAgICAgID8gMQogICAgICAgICAgICAgICAgOiAwOwogICAgICAgIGNvbnN0IGF1dG8gbm93ID0gc3RkOjpjaHJvbm86OnN0ZWFkeV9jbG9jazo6bm93KCk7CgogICAgICAgIGlmICghZGlnaXRhbFRyaWdnZXIpIHsKICAgICAgICAgICAgdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUgPSB7fTsKICAgICAgICB9CiAgICAgICAgZWxzZSBpZiAoIXRyaWdnZXJDb21iaW5hdGlvblN0YXRlLmRpZ2l0YWxBY3RpdmUpIHsKICAgICAgICAgICAgdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUuZGlnaXRhbEFjdGl2ZSA9IHRydWU7CiAgICAgICAgICAgIHRyaWdnZXJDb21iaW5hdGlvblN0YXRlLmluaXRpYWxTaWRlID0gc2lkZTsKICAgICAgICAgICAgdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUubGFzdENvbWJpbmVkID0gY29tYmluZWRUcmlnZ2VyOwogICAgICAgICAgICB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5zdGFibGVTaW5jZSA9IG5vdzsKICAgICAgICB9CiAgICAgICAgZWxzZSBpZiAoIXRyaWdnZXJDb21iaW5hdGlvblN0YXRlLmJvdGhIZWxkKSB7CiAgICAgICAgICAgIGlmICh0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5pbml0aWFsU2lkZSA9PSAwICYmIHNpZGUgIT0gMCkgewogICAgICAgICAgICAgICAgdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUuaW5pdGlhbFNpZGUgPSBzaWRlOwogICAgICAgICAgICB9CiAgICAgICAgICAgIGVsc2UgaWYgKHNpZGUgIT0gMCAmJgogICAgICAgICAgICAgICAgICAgICB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5pbml0aWFsU2lkZSAhPSAwICYmCiAgICAgICAgICAgICAgICAgICAgIHNpZGUgIT0gdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUuaW5pdGlhbFNpZGUpIHsKICAgICAgICAgICAgICAgIHRyaWdnZXJDb21iaW5hdGlvblN0YXRlLmJvdGhIZWxkID0gdHJ1ZTsKICAgICAgICAgICAgICAgIHRyaWdnZXJDb21iaW5hdGlvblN0YXRlLnJlbGVhc2VBcm1lZCA9IGZhbHNlOwogICAgICAgICAgICAgICAgdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUuc3RhYmxlU2luY2UgPSBub3c7CiAgICAgICAgICAgIH0KICAgICAgICAgICAgdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUubGFzdENvbWJpbmVkID0gY29tYmluZWRUcmlnZ2VyOwogICAgICAgIH0KICAgICAgICBlbHNlIHsKICAgICAgICAgICAgY29uc3QgaW50IG1vdmVtZW50ID0gc3RkOjphYnMoCiAgICAgICAgICAgICAgICBjb21iaW5lZFRyaWdnZXIgLSB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5sYXN0Q29tYmluZWQpOwoKICAgICAgICAgICAgaWYgKCF0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5yZWxlYXNlQXJtZWQpIHsKICAgICAgICAgICAgICAgIGlmIChtb3ZlbWVudCA8PSBzdGFibGVOb2lzZSkgewogICAgICAgICAgICAgICAgICAgIGlmIChub3cgLSB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5zdGFibGVTaW5jZSA+PQogICAgICAgICAgICAgICAgICAgICAgICByZWxlYXNlQXJtRGVsYXkpIHsKICAgICAgICAgICAgICAgICAgICAgICAgdHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUucmVsZWFzZUFybWVkID0gdHJ1ZTsKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBlbHNlIHsKICAgICAgICAgICAgICAgICAgICB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5zdGFibGVTaW5jZSA9IG5vdzsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgICAgICBlbHNlIGlmIChtb3ZlbWVudCA+PSByZWxlYXNlTW92ZW1lbnQpIHsKICAgICAgICAgICAgICAgIHRyaWdnZXJDb21iaW5hdGlvblN0YXRlLmJvdGhIZWxkID0gZmFsc2U7CiAgICAgICAgICAgICAgICB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5pbml0aWFsU2lkZSA9IHNpZGU7CiAgICAgICAgICAgICAgICB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5yZWxlYXNlQXJtZWQgPSBmYWxzZTsKICAgICAgICAgICAgICAgIHRyaWdnZXJDb21iaW5hdGlvblN0YXRlLnN0YWJsZVNpbmNlID0gbm93OwogICAgICAgICAgICB9CgogICAgICAgICAgICB0cmlnZ2VyQ29tYmluYXRpb25TdGF0ZS5sYXN0Q29tYmluZWQgPSBjb21iaW5lZFRyaWdnZXI7CiAgICAgICAgfQoKICAgICAgICBpZiAodHJpZ2dlckNvbWJpbmF0aW9uU3RhdGUuYm90aEhlbGQpIHsKICAgICAgICAgICAgc3RhdGUuYXhlc1tTRExfR0FNRVBBRF9BWElTX0xFRlRfVFJJR0dFUl0gPSAzMjc2NzsKICAgICAgICAgICAgc3RhdGUuYXhlc1tTRExfR0FNRVBBRF9BWElTX1JJR0hUX1RSSUdHRVJdID0gMzI3Njc7CiAgICAgICAgICAgIHJldHVybjsKICAgICAgICB9CgogICAgICAgIGNvbnN0IGludCBsZWZ0TWFnbml0dWRlID0gY29tYmluZWRUcmlnZ2VyIDwgdHJpZ2dlckNlbnRlcgogICAgICAgICAgICA/IHRyaWdnZXJDZW50ZXIgLSBjb21iaW5lZFRyaWdnZXIKICAgICAgICAgICAgOiAwOwogICAgICAgIGNvbnN0IGludCByaWdodE1hZ25pdHVkZSA9IGNvbWJpbmVkVHJpZ2dlciA+IHRyaWdnZXJDZW50ZXIKICAgICAgICAgICAgPyBjb21iaW5lZFRyaWdnZXIgLSB0cmlnZ2VyQ2VudGVyCiAgICAgICAgICAgIDogMDsKCiAgICAgICAgc3RhdGUuYXhlc1tTRExfR0FNRVBBRF9BWElTX0xFRlRfVFJJR0dFUl0gPQogICAgICAgICAgICBOb3JtYWxpemVUcmlnZ2VyTWFnbml0dWRlKGxlZnRNYWduaXR1ZGUsIHRyaWdnZXJDZW50ZXIpOwogICAgICAgIHN0YXRlLmF4ZXNbU0RMX0dBTUVQQURfQVhJU19SSUdIVF9UUklHR0VSXSA9CiAgICAgICAgICAgIE5vcm1hbGl6ZVRyaWdnZXJNYWduaXR1ZGUocmlnaHRNYWduaXR1ZGUsIDEyNyk7CiAgICB9Cgo="
+
+          state = base64.b64decode(state_b64).decode("utf-8")
+          function = base64.b64decode(func_b64).decode("utf-8")
+
+          state_pattern = re.compile(
+              r"    struct TriggerCombinationState\n    \{.*?\n    \};\n\n    std::atomic<bool> started",
+              re.DOTALL,
+          )
+          if not state_pattern.search(text):
+              raise SystemExit("TriggerCombinationState not found")
+          text = state_pattern.sub(state + "\n\n    std::atomic<bool> started", text, count=1)
+
+          function_pattern = re.compile(
+              r"    void ParseAllyAxes\(.*?\n    \}\n\n    bool LoadDevice",
+              re.DOTALL,
+          )
+          if not function_pattern.search(text):
+              raise SystemExit("ParseAllyAxes not found")
+          text = function_pattern.sub(function + "    bool LoadDevice", text, count=1)
+          path.write_text(text, encoding="utf-8")
+
+      - name: Commit source fix
+        shell: bash
+        run: |
+          if git diff --quiet -- WoWpadX/RawInputGamepad.cpp; then
+            echo "No source changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add WoWpadX/RawInputGamepad.cpp
+          git commit -m "Use trigger side transitions for LT+RT chord"
+          git push origin HEAD:agent/fix-dual-trigger-combo
