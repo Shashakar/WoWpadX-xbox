@@ -45,11 +45,44 @@ namespace
         std::vector<HIDP_VALUE_CAPS> valueCaps;
     };
 
+    struct HidValue
+    {
+        bool available = false;
+        LONG value = 0;
+        LONG logicalMin = 0;
+        LONG logicalMax = 0;
+    };
+
     std::atomic<bool> started = false;
     std::mutex stateMutex;
     ControllerState currentState;
-
     std::unordered_map<std::uintptr_t, DeviceContext> devices;
+
+    void ReleaseSyntheticModifiers()
+    {
+        constexpr std::array<WORD, 6> modifiers = {
+            VK_LSHIFT, VK_RSHIFT, VK_LCONTROL,
+            VK_RCONTROL, VK_LMENU, VK_RMENU,
+        };
+
+        std::array<INPUT, modifiers.size()> inputs{};
+        for (size_t index = 0; index < modifiers.size(); ++index) {
+            inputs[index].type = INPUT_KEYBOARD;
+            inputs[index].ki.wVk = modifiers[index];
+            inputs[index].ki.dwFlags = KEYEVENTF_KEYUP;
+        }
+        SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+    }
+
+    void ClearPublishedState(bool releaseModifiers)
+    {
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            currentState = {};
+        }
+        if (releaseModifiers)
+            ReleaseSyntheticModifiers();
+    }
 
     QString DevicePath(HANDLE device)
     {
@@ -104,18 +137,85 @@ namespace
         return usages;
     }
 
-    Sint16 NormalizeStick(BYTE value)
+    bool CapContainsUsage(const HIDP_VALUE_CAPS& cap, USAGE usage)
     {
-        return static_cast<Sint16>((static_cast<int>(value) - 128) * 256);
+        if (cap.IsRange)
+            return usage >= cap.Range.UsageMin && usage <= cap.Range.UsageMax;
+        return cap.NotRange.Usage == usage;
     }
 
-    Sint16 NormalizeTriggerMagnitude(int magnitude, int maximum)
+    LONG DecodeLogicalValue(ULONG rawValue, const HIDP_VALUE_CAPS& cap)
     {
-        if (magnitude <= 0 || maximum <= 0)
+        if (cap.LogicalMin >= 0 || cap.BitSize == 0 || cap.BitSize >= 32)
+            return static_cast<LONG>(rawValue);
+
+        const ULONG signBit = 1UL << (cap.BitSize - 1);
+        if ((rawValue & signBit) == 0)
+            return static_cast<LONG>(rawValue);
+
+        const ULONG mask = (1UL << cap.BitSize) - 1UL;
+        return static_cast<LONG>(rawValue | ~mask);
+    }
+
+    HidValue ReadGenericUsage(DeviceContext& device, const BYTE* report,
+        ULONG reportLength, USAGE usage)
+    {
+        auto preparsed = reinterpret_cast<PHIDP_PREPARSED_DATA>(
+            device.preparsedData.data());
+
+        for (const HIDP_VALUE_CAPS& cap : device.valueCaps) {
+            if (cap.UsagePage != HID_USAGE_PAGE_GENERIC ||
+                !CapContainsUsage(cap, usage)) {
+                continue;
+            }
+
+            ULONG rawValue = 0;
+            const NTSTATUS result = HidP_GetUsageValue(
+                HidP_Input, cap.UsagePage, cap.LinkCollection, usage,
+                &rawValue, preparsed,
+                reinterpret_cast<PCHAR>(const_cast<BYTE*>(report)),
+                reportLength);
+            if (result != HIDP_STATUS_SUCCESS)
+                continue;
+
+            HidValue value;
+            value.available = true;
+            value.value = DecodeLogicalValue(rawValue, cap);
+            value.logicalMin = cap.LogicalMin;
+            value.logicalMax = cap.LogicalMax;
+            return value;
+        }
+
+        return {};
+    }
+
+    Sint16 NormalizeSignedAxis(const HidValue& value)
+    {
+        if (!value.available || value.logicalMax <= value.logicalMin)
             return 0;
 
+        const double normalized =
+            (static_cast<double>(value.value - value.logicalMin) /
+             static_cast<double>(value.logicalMax - value.logicalMin)) * 2.0 - 1.0;
         return static_cast<Sint16>(
-            std::min(32767, magnitude * 32767 / maximum));
+            std::clamp(normalized, -1.0, 1.0) * 32767.0);
+    }
+
+    Sint16 NormalizeTrigger(const HidValue& value)
+    {
+        if (!value.available || value.logicalMax <= value.logicalMin)
+            return 0;
+
+        const double normalized =
+            static_cast<double>(value.value - value.logicalMin) /
+            static_cast<double>(value.logicalMax - value.logicalMin);
+        return static_cast<Sint16>(
+            std::clamp(normalized, 0.0, 1.0) * 32767.0);
+    }
+
+    Sint16 NormalizeLegacyStick(BYTE value)
+    {
+        return static_cast<Sint16>((static_cast<int>(value) - 128) * 256);
     }
 
     void ParseButtons(DeviceContext& device, const BYTE* report,
@@ -125,9 +225,6 @@ namespace
             device.preparsedData.data());
 
         for (const HIDP_BUTTON_CAPS& cap : device.buttonCaps) {
-            if (cap.ReportID != 0 &&
-                (reportLength == 0 || report[0] != cap.ReportID))
-                continue;
             if (cap.UsagePage != HID_USAGE_PAGE_BUTTON)
                 continue;
 
@@ -160,86 +257,93 @@ namespace
     void ParseDPad(DeviceContext& device, const BYTE* report,
         ULONG reportLength, ControllerState& state)
     {
-        auto preparsed = reinterpret_cast<PHIDP_PREPARSED_DATA>(
-            device.preparsedData.data());
-
-        for (const HIDP_VALUE_CAPS& cap : device.valueCaps) {
-            if (cap.ReportID != 0 &&
-                (reportLength == 0 || report[0] != cap.ReportID))
-                continue;
-            if (cap.UsagePage != HID_USAGE_PAGE_GENERIC)
-                continue;
-
-            USAGE usage = 0;
-            if (cap.IsRange) {
-                if (HID_USAGE_GENERIC_HATSWITCH < cap.Range.UsageMin ||
-                    HID_USAGE_GENERIC_HATSWITCH > cap.Range.UsageMax)
-                    continue;
-                usage = HID_USAGE_GENERIC_HATSWITCH;
-            }
-            else {
-                usage = cap.NotRange.Usage;
-                if (usage != HID_USAGE_GENERIC_HATSWITCH)
-                    continue;
-            }
-
-            ULONG value = 0;
-            if (HidP_GetUsageValue(
-                    HidP_Input, cap.UsagePage, cap.LinkCollection, usage,
-                    &value, preparsed,
-                    reinterpret_cast<PCHAR>(const_cast<BYTE*>(report)),
-                    reportLength) != HIDP_STATUS_SUCCESS)
-                continue;
-
-            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_UP] = true;
-            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] = true;
-            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_DOWN] = true;
-            state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_LEFT] = true;
-
-            const int position = static_cast<int>(value) - cap.LogicalMin;
-            if (position < 0 || position > 7)
-                return;
-
-            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_UP] =
-                position == 0 || position == 1 || position == 7;
-            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] =
-                position == 1 || position == 2 || position == 3;
-            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_DOWN] =
-                position == 3 || position == 4 || position == 5;
-            state.buttons[SDL_GAMEPAD_BUTTON_DPAD_LEFT] =
-                position == 5 || position == 6 || position == 7;
+        const HidValue hat = ReadGenericUsage(
+            device, report, reportLength, HID_USAGE_GENERIC_HATSWITCH);
+        if (!hat.available)
             return;
-        }
+
+        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_UP] = true;
+        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] = true;
+        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_DOWN] = true;
+        state.buttonKnown[SDL_GAMEPAD_BUTTON_DPAD_LEFT] = true;
+
+        const int position = static_cast<int>(hat.value - hat.logicalMin);
+        if (position < 0 || position > 7)
+            return;
+
+        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_UP] =
+            position == 0 || position == 1 || position == 7;
+        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] =
+            position == 1 || position == 2 || position == 3;
+        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_DOWN] =
+            position == 3 || position == 4 || position == 5;
+        state.buttons[SDL_GAMEPAD_BUTTON_DPAD_LEFT] =
+            position == 5 || position == 6 || position == 7;
     }
 
-    void ParseAllyAxes(const BYTE* report, ULONG reportLength,
-        ControllerState& state)
+    void ParseAllyAxes(DeviceContext& device, const BYTE* report,
+        ULONG reportLength, ControllerState& state)
     {
-        if (reportLength < 11)
-            return;
+        const HidValue leftX = ReadGenericUsage(
+            device, report, reportLength, HID_USAGE_GENERIC_X);
+        const HidValue leftY = ReadGenericUsage(
+            device, report, reportLength, HID_USAGE_GENERIC_Y);
+        const HidValue rightX = ReadGenericUsage(
+            device, report, reportLength, HID_USAGE_GENERIC_RX);
+        const HidValue rightY = ReadGenericUsage(
+            device, report, reportLength, HID_USAGE_GENERIC_RY);
+        const HidValue leftTrigger = ReadGenericUsage(
+            device, report, reportLength, HID_USAGE_GENERIC_Z);
+        const HidValue rightTrigger = ReadGenericUsage(
+            device, report, reportLength, HID_USAGE_GENERIC_RZ);
 
-        state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
-        state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
-        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
-        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
-        state.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
-        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
+        if (leftX.available) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
+            state.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeSignedAxis(leftX);
+        }
+        else if (reportLength > 2) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
+            state.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeLegacyStick(report[2]);
+        }
 
-        state.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeStick(report[2]);
-        state.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeStick(report[4]);
-        state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeStick(report[6]);
-        state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeStick(report[8]);
+        if (leftY.available) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
+            state.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeSignedAxis(leftY);
+        }
+        else if (reportLength > 4) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
+            state.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeLegacyStick(report[4]);
+        }
 
-        const int combinedTrigger = static_cast<int>(report[10]);
-        const int leftMagnitude = combinedTrigger < 128
-            ? 128 - combinedTrigger : 0;
-        const int rightMagnitude = combinedTrigger > 128
-            ? combinedTrigger - 128 : 0;
+        if (rightX.available) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
+            state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeSignedAxis(rightX);
+        }
+        else if (reportLength > 6) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
+            state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeLegacyStick(report[6]);
+        }
 
-        state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] =
-            NormalizeTriggerMagnitude(leftMagnitude, 128);
-        state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
-            NormalizeTriggerMagnitude(rightMagnitude, 127);
+        if (rightY.available) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
+            state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeSignedAxis(rightY);
+        }
+        else if (reportLength > 8) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
+            state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeLegacyStick(report[8]);
+        }
+
+        if (leftTrigger.available) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
+            state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] =
+                NormalizeTrigger(leftTrigger);
+        }
+
+        if (rightTrigger.available) {
+            state.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
+            state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
+                NormalizeTrigger(rightTrigger);
+        }
     }
 
     bool LoadDevice(HANDLE handle, DeviceContext& output)
@@ -252,8 +356,9 @@ namespace
                 &infoSize) == static_cast<UINT>(-1) ||
             info.dwType != RIM_TYPEHID ||
             info.hid.dwVendorId != kAsusVendorId ||
-            info.hid.dwProductId != kAllyControllerProductId)
+            info.hid.dwProductId != kAllyControllerProductId) {
             return false;
+        }
 
         const QString path = DevicePath(handle);
         if (!path.contains("IG_00", Qt::CaseInsensitive))
@@ -262,8 +367,9 @@ namespace
         UINT preparsedSize = 0;
         if (GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, nullptr,
                 &preparsedSize) == static_cast<UINT>(-1) ||
-            preparsedSize == 0)
+            preparsedSize == 0) {
             return false;
+        }
 
         output = {};
         output.handle = handle;
@@ -272,8 +378,9 @@ namespace
 
         if (GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA,
                 output.preparsedData.data(), &preparsedSize) ==
-            static_cast<UINT>(-1))
+            static_cast<UINT>(-1)) {
             return false;
+        }
 
         auto preparsed = reinterpret_cast<PHIDP_PREPARSED_DATA>(
             output.preparsedData.data());
@@ -284,20 +391,24 @@ namespace
         output.buttonCaps.resize(buttonCount);
         if (buttonCount > 0) {
             if (HidP_GetButtonCaps(HidP_Input, output.buttonCaps.data(),
-                    &buttonCount, preparsed) != HIDP_STATUS_SUCCESS)
+                    &buttonCount, preparsed) != HIDP_STATUS_SUCCESS) {
                 output.buttonCaps.clear();
-            else
+            }
+            else {
                 output.buttonCaps.resize(buttonCount);
+            }
         }
 
         USHORT valueCount = output.caps.NumberInputValueCaps;
         output.valueCaps.resize(valueCount);
         if (valueCount > 0) {
             if (HidP_GetValueCaps(HidP_Input, output.valueCaps.data(),
-                    &valueCount, preparsed) != HIDP_STATUS_SUCCESS)
+                    &valueCount, preparsed) != HIDP_STATUS_SUCCESS) {
                 output.valueCaps.clear();
-            else
+            }
+            else {
                 output.valueCaps.resize(valueCount);
+            }
         }
 
         Log::writeLine(QString(
@@ -336,15 +447,17 @@ namespace
         UINT requiredSize = 0;
         if (GetRawInputData(rawInputHandle, RID_INPUT, nullptr,
                 &requiredSize, sizeof(RAWINPUTHEADER)) != 0 ||
-            requiredSize == 0)
+            requiredSize == 0) {
             return;
+        }
 
         std::vector<BYTE> storage(requiredSize);
         UINT actualSize = requiredSize;
         if (GetRawInputData(rawInputHandle, RID_INPUT, storage.data(),
                 &actualSize, sizeof(RAWINPUTHEADER)) ==
-            static_cast<UINT>(-1))
+            static_cast<UINT>(-1)) {
             return;
+        }
 
         const auto* input = reinterpret_cast<const RAWINPUT*>(storage.data());
         if (input->header.dwType != RIM_TYPEHID)
@@ -363,7 +476,7 @@ namespace
             ControllerState state;
             ParseButtons(*device, report, reportLength, state);
             ParseDPad(*device, report, reportLength, state);
-            ParseAllyAxes(report, reportLength, state);
+            ParseAllyAxes(*device, report, reportLength, state);
             Publish(state);
         }
     }
@@ -380,11 +493,15 @@ namespace
                 const auto key = reinterpret_cast<std::uintptr_t>(
                     reinterpret_cast<HANDLE>(lParam));
                 devices.erase(key);
+                if (devices.empty())
+                    ClearPublishedState(true);
             }
-            else
+            else {
                 GetDevice(reinterpret_cast<HANDLE>(lParam));
+            }
             return 0;
         case WM_DESTROY:
+            ClearPublishedState(true);
             PostQuitMessage(0);
             return 0;
         default:
@@ -405,6 +522,7 @@ namespace
             GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
             Log::writeLine("[RawInput] Failed to register Ally input window. Error=" +
                 QString::number(GetLastError()));
+            ClearPublishedState(true);
             return;
         }
 
@@ -414,6 +532,7 @@ namespace
         if (!window) {
             Log::writeLine("[RawInput] Failed to create Ally input window. Error=" +
                 QString::number(GetLastError()));
+            ClearPublishedState(true);
             return;
         }
 
@@ -431,6 +550,7 @@ namespace
                 sizeof(RAWINPUTDEVICE))) {
             Log::writeLine("[RawInput] Failed to register Ally controller. Error=" +
                 QString::number(GetLastError()));
+            ClearPublishedState(true);
             DestroyWindow(window);
             return;
         }
@@ -455,6 +575,8 @@ namespace
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+
+        ClearPublishedState(true);
     }
 }
 
@@ -464,6 +586,7 @@ namespace RawInputGamepad
     {
         if (started.exchange(true))
             return;
+
         std::thread(ThreadMain).detach();
     }
 
@@ -471,9 +594,11 @@ namespace RawInputGamepad
     {
         if (button < 0 || button >= SDL_GAMEPAD_BUTTON_COUNT)
             return false;
+
         std::lock_guard<std::mutex> lock(stateMutex);
         if (!currentState.available || !currentState.buttonKnown[button])
             return false;
+
         pressed = currentState.buttons[button];
         return true;
     }
@@ -482,9 +607,11 @@ namespace RawInputGamepad
     {
         if (axis < 0 || axis >= SDL_GAMEPAD_AXIS_COUNT)
             return false;
+
         std::lock_guard<std::mutex> lock(stateMutex);
         if (!currentState.available || !currentState.axisKnown[axis])
             return false;
+
         value = currentState.axes[axis];
         return true;
     }
