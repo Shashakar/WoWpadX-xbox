@@ -62,7 +62,6 @@ namespace
     std::atomic<bool> started = false;
     std::mutex stateMutex;
     ControllerState currentState;
-    TriggerCombinationState triggerCombinationState;
 
     // Owned exclusively by the Raw Input message thread.
     std::unordered_map<std::uintptr_t, DeviceContext> devices;
