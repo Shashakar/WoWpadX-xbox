@@ -31,7 +31,8 @@ Item {
                         "Default (L1+L2)",
                         "Triggers (L2+R2)",
                         "Reversed (R1+R2)",
-                        "Shoulders (L1+R1)"
+                        "Shoulders (L1+R1)",
+                        "Rear Paddles (M1+M2)"
                     ]
                     currentIndex: AppSettings.modifierStyle
                     onActivated: function(index) {
@@ -39,6 +40,14 @@ Item {
                         AppSettings.modifierStyle = index
                         AppSettings.save()
                     }
+                }
+
+                Label {
+                    visible: AppSettings.modifierStyle === 4
+                    Layout.preferredWidth: parent.width - 50
+                    wrapMode: Text.Wrap
+                    color: Material.accent
+                    text: "In Armoury Crate, set M1 as a standalone F13 key and M2 as a standalone F14 key. M1 = Shift, M2 = Ctrl, and M1+M2 = Shift+Ctrl."
                 }
             }
 
@@ -124,7 +133,6 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 onDoubleClicked: {
-                    // Handle double-click logic here
                 }
             }
 
