@@ -1,0 +1,120 @@
+name: Apply trigger center latch
+
+on:
+  push:
+    branches:
+      - agent/fix-dual-trigger-combo
+    paths:
+      - .github/workflows/apply-trigger-center-latch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-dual-trigger-combo
+          fetch-depth: 0
+
+      - name: Patch RawInputGamepad.cpp
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('WoWpadX/RawInputGamepad.cpp')
+          s = p.read_text()
+          if 'TriggerChordState' in s:
+              raise SystemExit(0)
+
+          s = s.replace('#include <cstdint>\n', '#include <cstdint>\n#include <chrono>\n')
+          marker = '    std::unordered_map<std::uintptr_t, DeviceContext> devices;\n'
+          state = '''    std::unordered_map<std::uintptr_t, DeviceContext> devices;\n\n    enum class TriggerChordState\n    {\n        None,\n        Left,\n        Right,\n        Both,\n    };\n\n    TriggerChordState triggerChordState = TriggerChordState::None;\n    std::chrono::steady_clock::time_point triggerCenterSince{};\n    bool triggerCenterPending = false;\n'''
+          s = s.replace(marker, state)
+
+          start = s.index('    void ParseAllyAxes(')
+          end = s.index('    void LogTriggerRelevantReportChanges(', start)
+          replacement = r'''    void ParseAllyAxes(const BYTE* report, ULONG reportLength,
+        ControllerState& state)
+    {
+        if (reportLength < 11)
+            return;
+
+        state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_LEFTY] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTX] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHTY] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
+        state.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
+
+        state.axes[SDL_GAMEPAD_AXIS_LEFTX] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 1));
+        state.axes[SDL_GAMEPAD_AXIS_LEFTY] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 3));
+        state.axes[SDL_GAMEPAD_AXIS_RIGHTX] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 5));
+        state.axes[SDL_GAMEPAD_AXIS_RIGHTY] =
+            NormalizeRawStick16(ReadLittleEndian16(report, 7));
+
+        constexpr int center = 32768;
+        constexpr int sideThreshold = 5000;
+        constexpr int centerThreshold = 1800;
+        constexpr auto chordDelay = std::chrono::milliseconds(70);
+
+        const int trigger = static_cast<int>(ReadLittleEndian16(report, 9));
+        const int offset = trigger - center;
+        const auto now = std::chrono::steady_clock::now();
+
+        if (offset <= -sideThreshold) {
+            triggerChordState = triggerChordState == TriggerChordState::Both
+                ? TriggerChordState::Left
+                : TriggerChordState::Left;
+            triggerCenterPending = false;
+        }
+        else if (offset >= sideThreshold) {
+            triggerChordState = triggerChordState == TriggerChordState::Both
+                ? TriggerChordState::Right
+                : TriggerChordState::Right;
+            triggerCenterPending = false;
+        }
+        else if (std::abs(offset) <= centerThreshold) {
+            if (triggerChordState == TriggerChordState::Left ||
+                triggerChordState == TriggerChordState::Right) {
+                if (!triggerCenterPending) {
+                    triggerCenterPending = true;
+                    triggerCenterSince = now;
+                }
+                else if (now - triggerCenterSince >= chordDelay) {
+                    triggerChordState = TriggerChordState::Both;
+                    triggerCenterPending = false;
+                }
+            }
+        }
+
+        const bool left = triggerChordState == TriggerChordState::Left ||
+            triggerChordState == TriggerChordState::Both;
+        const bool right = triggerChordState == TriggerChordState::Right ||
+            triggerChordState == TriggerChordState::Both;
+
+        state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = left ? 32767 : 0;
+        state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = right ? 32767 : 0;
+    }
+
+'''
+          s = s[:start] + replacement + s[end:]
+
+          log_start = s.index('    void LogTriggerRelevantReportChanges(')
+          load_start = s.index('    bool LoadDevice(', log_start)
+          s = s[:log_start] + s[load_start:]
+          s = s.replace('            LogTriggerRelevantReportChanges(report, reportLength);\n\n', '')
+          p.write_text(s)
+
+      - name: Commit patch
+        run: |
+          if git diff --quiet -- WoWpadX/RawInputGamepad.cpp; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add WoWpadX/RawInputGamepad.cpp
+          git commit -m 'Latch simultaneous Ally triggers at center'
+          git push origin HEAD:agent/fix-dual-trigger-combo
