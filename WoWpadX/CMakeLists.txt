@@ -56,6 +56,7 @@ qt_add_executable(
     MainPageController.h
     MemoryReadingController.cpp
     MemoryReadingController.h
+    NativeHidProbe.cpp
     OverlayClient.cpp
     OverlayClient.h
     OverlayLoader.cpp
@@ -99,6 +100,7 @@ target_link_libraries(
         Qt6::QuickControls2
         SDL3::SDL3
         hid
+        setupapi
 )
 
 qt_finalize_executable(WoWpadX)
