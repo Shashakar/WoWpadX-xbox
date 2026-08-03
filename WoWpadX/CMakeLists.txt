@@ -61,6 +61,7 @@ qt_add_executable(
     OverlayClient.h
     OverlayLoader.cpp
     OverlayLoader.h
+    PaddleModifierInput.cpp
     ProcessManager.cpp
     ProcessManager.h
     RawInputGamepad.cpp
