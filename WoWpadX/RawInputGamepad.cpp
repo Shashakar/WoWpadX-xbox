@@ -12,8 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
-#include <cstdlib>
 #include <cstdint>
 #include <limits>
 #include <mutex>
@@ -46,18 +44,6 @@ namespace
         std::vector<HIDP_BUTTON_CAPS> buttonCaps;
         std::vector<HIDP_VALUE_CAPS> valueCaps;
     };
-
-    struct TriggerCombinationState
-    {
-        bool digitalActive = false;
-        int initialSide = 0;
-        bool bothHeld = false;
-        bool releaseArmed = false;
-        int lastCombined = 128;
-        std::chrono::steady_clock::time_point stableSince{};
-    };
-
-    TriggerCombinationState triggerCombinationState;
 
     std::atomic<bool> started = false;
     std::mutex stateMutex;
@@ -126,18 +112,26 @@ namespace
         return usages;
     }
 
-    Sint16 NormalizeStick(BYTE value)
+    uint16_t ReadLittleEndian16(const BYTE* report, size_t offset)
     {
-        return static_cast<Sint16>((static_cast<int>(value) - 128) * 256);
+        return static_cast<uint16_t>(report[offset]) |
+            (static_cast<uint16_t>(report[offset + 1]) << 8);
     }
 
-    Sint16 NormalizeTriggerMagnitude(int magnitude, int maximum)
+    Sint16 NormalizeStick16(uint16_t value)
     {
-        if (magnitude <= 0 || maximum <= 0)
-            return 0;
-
+        const int centered = static_cast<int>(value) - 32768;
         return static_cast<Sint16>(
-            std::min(32767, magnitude * 32767 / maximum));
+            std::clamp(centered, -32768, 32767));
+    }
+
+    Sint16 NormalizeTrigger10(uint16_t value)
+    {
+        constexpr uint32_t triggerMaximum = 1023;
+        const uint32_t clamped =
+            std::min<uint32_t>(value, triggerMaximum);
+        return static_cast<Sint16>(
+            clamped * 32767u / triggerMaximum);
     }
 
     void ParseButtons(
@@ -260,7 +254,10 @@ namespace
         ULONG reportLength,
         ControllerState& state)
     {
-        if (reportLength < 11)
+        // The Ally X native report is 16 bytes:
+        // report ID, four 16-bit stick axes, two independent 16-bit trigger
+        // axes, then button data. Triggers use a 0..1023 logical range.
+        if (reportLength < 13)
             return;
 
         state.axisKnown[SDL_GAMEPAD_AXIS_LEFTX] = true;
@@ -270,90 +267,18 @@ namespace
         state.axisKnown[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = true;
         state.axisKnown[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = true;
 
-        state.axes[SDL_GAMEPAD_AXIS_LEFTX] = NormalizeStick(report[2]);
-        state.axes[SDL_GAMEPAD_AXIS_LEFTY] = NormalizeStick(report[4]);
-        state.axes[SDL_GAMEPAD_AXIS_RIGHTX] = NormalizeStick(report[6]);
-        state.axes[SDL_GAMEPAD_AXIS_RIGHTY] = NormalizeStick(report[8]);
-
-        constexpr int triggerCenter = 128;
-        constexpr int sideThreshold = 10;
-        constexpr int stableNoise = 2;
-        constexpr int releaseMovement = 12;
-        constexpr auto releaseArmDelay = std::chrono::milliseconds(80);
-
-        const int combinedTrigger = static_cast<int>(report[10]);
-        const bool digitalTrigger = (report[9] & 0x80) != 0;
-        const int side = combinedTrigger < triggerCenter - sideThreshold
-            ? -1
-            : combinedTrigger > triggerCenter + sideThreshold
-                ? 1
-                : 0;
-        const auto now = std::chrono::steady_clock::now();
-
-        if (!digitalTrigger) {
-            triggerCombinationState = {};
-        }
-        else if (!triggerCombinationState.digitalActive) {
-            triggerCombinationState.digitalActive = true;
-            triggerCombinationState.initialSide = side;
-            triggerCombinationState.lastCombined = combinedTrigger;
-            triggerCombinationState.stableSince = now;
-        }
-        else if (!triggerCombinationState.bothHeld) {
-            if (triggerCombinationState.initialSide == 0 && side != 0) {
-                triggerCombinationState.initialSide = side;
-            }
-            else if (side != 0 &&
-                     triggerCombinationState.initialSide != 0 &&
-                     side != triggerCombinationState.initialSide) {
-                triggerCombinationState.bothHeld = true;
-                triggerCombinationState.releaseArmed = false;
-                triggerCombinationState.stableSince = now;
-            }
-            triggerCombinationState.lastCombined = combinedTrigger;
-        }
-        else {
-            const int movement = std::abs(
-                combinedTrigger - triggerCombinationState.lastCombined);
-
-            if (!triggerCombinationState.releaseArmed) {
-                if (movement <= stableNoise) {
-                    if (now - triggerCombinationState.stableSince >=
-                        releaseArmDelay) {
-                        triggerCombinationState.releaseArmed = true;
-                    }
-                }
-                else {
-                    triggerCombinationState.stableSince = now;
-                }
-            }
-            else if (movement >= releaseMovement) {
-                triggerCombinationState.bothHeld = false;
-                triggerCombinationState.initialSide = side;
-                triggerCombinationState.releaseArmed = false;
-                triggerCombinationState.stableSince = now;
-            }
-
-            triggerCombinationState.lastCombined = combinedTrigger;
-        }
-
-        if (triggerCombinationState.bothHeld) {
-            state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] = 32767;
-            state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = 32767;
-            return;
-        }
-
-        const int leftMagnitude = combinedTrigger < triggerCenter
-            ? triggerCenter - combinedTrigger
-            : 0;
-        const int rightMagnitude = combinedTrigger > triggerCenter
-            ? combinedTrigger - triggerCenter
-            : 0;
-
+        state.axes[SDL_GAMEPAD_AXIS_LEFTX] =
+            NormalizeStick16(ReadLittleEndian16(report, 1));
+        state.axes[SDL_GAMEPAD_AXIS_LEFTY] =
+            NormalizeStick16(ReadLittleEndian16(report, 3));
+        state.axes[SDL_GAMEPAD_AXIS_RIGHTX] =
+            NormalizeStick16(ReadLittleEndian16(report, 5));
+        state.axes[SDL_GAMEPAD_AXIS_RIGHTY] =
+            NormalizeStick16(ReadLittleEndian16(report, 7));
         state.axes[SDL_GAMEPAD_AXIS_LEFT_TRIGGER] =
-            NormalizeTriggerMagnitude(leftMagnitude, triggerCenter);
+            NormalizeTrigger10(ReadLittleEndian16(report, 9));
         state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] =
-            NormalizeTriggerMagnitude(rightMagnitude, 127);
+            NormalizeTrigger10(ReadLittleEndian16(report, 11));
     }
 
     bool LoadDevice(HANDLE handle, DeviceContext& output)
