@@ -1,0 +1,42 @@
+name: Remove duplicate trigger state
+
+on:
+  push:
+    branches:
+      - agent/fix-dual-trigger-combo
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-dual-trigger-combo
+
+      - name: Remove duplicate declaration
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("WoWpadX/RawInputGamepad.cpp")
+          text = path.read_text(encoding="utf-8-sig")
+          duplicate = "    ControllerState currentState;\n    TriggerCombinationState triggerCombinationState;\n"
+          if duplicate not in text:
+              print("Duplicate declaration already removed")
+              raise SystemExit(0)
+          text = text.replace(duplicate, "    ControllerState currentState;\n", 1)
+          path.write_text(text, encoding="utf-8")
+
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          if git diff --quiet -- WoWpadX/RawInputGamepad.cpp; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add WoWpadX/RawInputGamepad.cpp
+          git commit -m "Remove duplicate trigger state declaration"
+          git push origin HEAD:agent/fix-dual-trigger-combo
