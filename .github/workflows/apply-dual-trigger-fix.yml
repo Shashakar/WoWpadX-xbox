@@ -95,9 +95,6 @@ jobs:
               }
               else {
                   triggerCombinationState.centerCandidate = false;
-
-                  // Once one trigger is released, the combined axis moves clearly
-                  // to the side of the trigger that remains held.
                   if (triggerCombinationState.bothHeld &&
                       distanceFromCenter > bothReleaseTolerance) {
                       triggerCombinationState.bothHeld = false;
