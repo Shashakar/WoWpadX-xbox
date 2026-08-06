@@ -24,6 +24,16 @@ This fork adds a Windows Raw Input backend for the built-in controller on the Xb
 
 For startup in Xbox mode, use Windows Task Scheduler with an **At log on** trigger, **Run with highest privileges**, and set **Start in** to the folder containing `WoWpadX.exe`.
 
+### **Rear paddle modifiers**
+
+For reliable modifier combinations in Xbox Full Screen Experience:
+
+1. In Armoury Crate, map **M1** directly to **Left Shift**.
+2. Map **M2** directly to **Left Ctrl**.
+3. In WoWpadX, select **Rear Paddles (Armoury Shift/Ctrl)** under Modifier Buttons.
+
+M1 activates the Shift layer, M2 activates the Ctrl layer, and holding both activates the Shift+Ctrl layer. Armoury Crate emits these keyboard modifiers directly; WoWpadX does not intercept or re-create them.
+
 ### **Windows Defender note**
 
 The portable executable is currently unsigned. Windows Defender may block or terminate it because WoWpadX reads controller HID input and generates keyboard/mouse input. This can appear in Task Scheduler as `0x8007042B` even when the application itself is valid.
