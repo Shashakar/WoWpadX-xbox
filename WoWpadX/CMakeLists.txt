@@ -99,6 +99,7 @@ target_link_libraries(
         Qt6::QuickControls2
         SDL3::SDL3
         hid
+        setupapi
 )
 
 qt_finalize_executable(WoWpadX)
