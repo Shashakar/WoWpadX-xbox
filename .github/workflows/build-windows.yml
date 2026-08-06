@@ -2,9 +2,6 @@ name: Build Windows
 
 on:
   pull_request:
-  push:
-    branches:
-      - agent/fix-dual-trigger-combo
   workflow_dispatch:
 
 permissions:
