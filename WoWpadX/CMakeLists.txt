@@ -56,12 +56,10 @@ qt_add_executable(
     MainPageController.h
     MemoryReadingController.cpp
     MemoryReadingController.h
-    NativeHidProbe.cpp
     OverlayClient.cpp
     OverlayClient.h
     OverlayLoader.cpp
     OverlayLoader.h
-    PaddleModifierInput.cpp
     ProcessManager.cpp
     ProcessManager.h
     RawInputGamepad.cpp
