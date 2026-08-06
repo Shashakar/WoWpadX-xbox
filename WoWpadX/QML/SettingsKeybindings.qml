@@ -32,7 +32,7 @@ Item {
                         "Triggers (L2+R2)",
                         "Reversed (R1+R2)",
                         "Shoulders (L1+R1)",
-                        "Rear Paddles (M1+M2)"
+                        "Rear Paddles (Armoury Shift/Ctrl)"
                     ]
                     currentIndex: AppSettings.modifierStyle
                     onActivated: function(index) {
@@ -47,7 +47,7 @@ Item {
                     Layout.preferredWidth: parent.width - 50
                     wrapMode: Text.Wrap
                     color: Material.accent
-                    text: "In Armoury Crate, set M1 as a standalone F13 key and M2 as a standalone F14 key. M1 = Shift, M2 = Ctrl, and M1+M2 = Shift+Ctrl."
+                    text: "In Armoury Crate, map M1 directly to Left Shift and M2 directly to Left Ctrl. M1+M2 then produces Shift+Ctrl. WoWpadX leaves these keyboard modifiers untouched."
                 }
             }
 
