@@ -83,10 +83,10 @@ namespace KeybindDefaults {
             };
             break;
         case 4:
-            // M1/M2 are converted from F13/F14 to Shift/Ctrl by
-            // PaddleModifierInput. Keep the shoulder buttons as the normal
-            // ConsolePort L1/R1 actions and leave the ambiguous triggers
-            // unbound in this profile.
+            // Armoury Crate emits Left Shift from M1 and Left Ctrl from M2.
+            // WoWpadX must not synthesize another modifier pair in this mode.
+            // Keep L1/R1 as the normal ConsolePort shoulder actions and leave
+            // the combined-axis triggers unbound.
             binds = {
                 { GamepadBinding::LeftShoulder, VK_F7 },
                 { GamepadBinding::RightShoulder, VK_F8 },
