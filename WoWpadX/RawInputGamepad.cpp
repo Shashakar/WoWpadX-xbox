@@ -4,7 +4,6 @@
 
 #include <QCoreApplication>
 #include <QString>
-#include <QStringList>
 
 #include <Windows.h>
 #include <hidpi.h>
@@ -253,7 +252,6 @@ namespace
         state.axes[SDL_GAMEPAD_AXIS_RIGHTY] =
             NormalizeRawStick16(ReadLittleEndian16(report, 7));
 
-        // Preserve the last hardware-validated single-trigger behavior.
         constexpr int triggerCenter = 128;
         const int combinedTrigger = static_cast<int>(report[10]);
         const int leftMagnitude = combinedTrigger < triggerCenter
@@ -265,48 +263,6 @@ namespace
             std::min(32767, leftMagnitude * 32767 / triggerCenter));
         state.axes[SDL_GAMEPAD_AXIS_RIGHT_TRIGGER] = static_cast<Sint16>(
             std::min(32767, rightMagnitude * 32767 / 127));
-    }
-
-    void LogTriggerRelevantReportChanges(const BYTE* report,
-        ULONG reportLength)
-    {
-        if (reportLength < 11)
-            return;
-
-        static std::array<BYTE, 16> previous{};
-        static ULONG previousLength = 0;
-        static bool initialized = false;
-
-        const ULONG capturedLength = std::min<ULONG>(
-            reportLength, static_cast<ULONG>(previous.size()));
-        bool changed = !initialized || previousLength != capturedLength;
-        if (!changed) {
-            for (ULONG index = 9; index < capturedLength; ++index) {
-                if (previous[index] != report[index]) {
-                    changed = true;
-                    break;
-                }
-            }
-        }
-        if (!changed)
-            return;
-
-        QStringList bytes;
-        for (ULONG index = 0; index < capturedLength; ++index) {
-            bytes.append(QString("%1")
-                .arg(report[index], 2, 16, QLatin1Char('0')));
-            previous[index] = report[index];
-        }
-        previousLength = capturedLength;
-        initialized = true;
-
-        Log::writeLine(QString(
-            "[RawInputTriggerProbe] bytes=[%1] trigger16=%2 "
-            "triggerHi=%3 tail=[%4]")
-            .arg(bytes.join(' '))
-            .arg(ReadLittleEndian16(report, 9))
-            .arg(report[10])
-            .arg(bytes.mid(11).join(' ')));
     }
 
     bool LoadDevice(HANDLE handle, DeviceContext& output)
@@ -434,8 +390,6 @@ namespace
         for (ULONG reportIndex = 0; reportIndex < reportCount; ++reportIndex) {
             const BYTE* report = input->data.hid.bRawData +
                 static_cast<size_t>(reportIndex) * reportLength;
-
-            LogTriggerRelevantReportChanges(report, reportLength);
 
             ControllerState state;
             ParseButtons(*device, report, reportLength, state);
