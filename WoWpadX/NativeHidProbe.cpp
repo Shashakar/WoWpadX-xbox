@@ -9,10 +9,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <iomanip>
 #include <sstream>
-#include <string>
 #include <thread>
 #include <vector>
 
@@ -20,7 +18,7 @@ namespace
 {
     constexpr USHORT kAsusVendorId = 0x0B05;
     constexpr USHORT kAllyControllerProductId = 0x1B4C;
-    constexpr unsigned kMaximumLoggedChangesPerInterface = 200;
+    constexpr unsigned kMaximumLoggedReports = 500;
 
     std::atomic<bool> probeStarted = false;
 
@@ -63,7 +61,14 @@ namespace
         return status == HIDP_STATUS_SUCCESS;
     }
 
-    void ReaderThread(QString path, HIDP_CAPS caps)
+    bool IsPaddleCandidate(const QString& path, const HIDP_CAPS& caps)
+    {
+        return path.contains("mi_04", Qt::CaseInsensitive) &&
+            caps.UsagePage == 0xFF82 && caps.Usage == 0x00CF &&
+            caps.InputReportByteLength == 17;
+    }
+
+    void PaddleReaderThread(QString path, HIDP_CAPS caps)
     {
         HANDLE handle = CreateFileW(
             reinterpret_cast<LPCWSTR>(path.utf16()),
@@ -76,62 +81,57 @@ namespace
 
         if (handle == INVALID_HANDLE_VALUE) {
             Log::writeLine(
-                "[NativeHidProbe] Read open failed error=" +
+                "[PaddleProbe] Read open failed error=" +
                 QString::number(GetLastError()) + " " +
                 InterfaceLabel(path, caps));
             return;
         }
 
         Log::writeLine(
-            "[NativeHidProbe] Reading " + InterfaceLabel(path, caps));
+            "[PaddleProbe] Reading ASUS MI_04 paddle candidate " +
+            InterfaceLabel(path, caps));
 
         const DWORD reportLength = std::max<DWORD>(
             1, static_cast<DWORD>(caps.InputReportByteLength));
         std::vector<BYTE> report(reportLength);
         std::vector<BYTE> previous;
-        unsigned loggedChanges = 0;
-        auto lastLog = std::chrono::steady_clock::time_point{};
+        unsigned loggedReports = 0;
 
-        while (loggedChanges < kMaximumLoggedChangesPerInterface) {
+        while (loggedReports < kMaximumLoggedReports) {
             DWORD bytesRead = 0;
             std::fill(report.begin(), report.end(), 0);
             if (!ReadFile(handle, report.data(), reportLength,
                     &bytesRead, nullptr)) {
                 Log::writeLine(
-                    "[NativeHidProbe] Read failed error=" +
+                    "[PaddleProbe] Read failed error=" +
                     QString::number(GetLastError()) + " path=\"" +
                     path + "\"");
                 break;
             }
 
-            if (bytesRead == 0 || report == previous)
+            if (bytesRead == 0)
                 continue;
 
-            const auto now = std::chrono::steady_clock::now();
-            const bool nativeReportCandidate = report[0] == 0x0B;
-            const bool enoughTimePassed =
-                lastLog.time_since_epoch().count() == 0 ||
-                now - lastLog >= std::chrono::milliseconds(40);
+            const std::vector<BYTE> current(
+                report.begin(), report.begin() + bytesRead);
+            if (current == previous)
+                continue;
 
-            if (nativeReportCandidate || enoughTimePassed) {
-                Log::writeLine(
-                    QString(
-                        "[NativeHidProbe] reportId=0x%1 bytesRead=%2 "
-                        "path=\"%3\" bytes=[%4]")
-                        .arg(report[0], 0, 16)
-                        .arg(bytesRead)
-                        .arg(path)
-                        .arg(HexBytes(report, bytesRead)));
-                ++loggedChanges;
-                lastLog = now;
-            }
+            Log::writeLine(
+                QString(
+                    "[PaddleProbe] change=%1 reportId=0x%2 bytesRead=%3 "
+                    "bytes=[%4]")
+                    .arg(loggedReports + 1)
+                    .arg(report[0], 0, 16)
+                    .arg(bytesRead)
+                    .arg(HexBytes(report, bytesRead)));
 
-            previous.assign(report.begin(), report.begin() + bytesRead);
+            previous = current;
+            ++loggedReports;
         }
 
         CloseHandle(handle);
-        Log::writeLine(
-            "[NativeHidProbe] Reader stopped path=\"" + path + "\"");
+        Log::writeLine("[PaddleProbe] Reader stopped.");
     }
 
     void ProbeThread()
@@ -146,12 +146,13 @@ namespace
             DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
         if (deviceInfo == INVALID_HANDLE_VALUE) {
             Log::writeLine(
-                "[NativeHidProbe] SetupDiGetClassDevs failed error=" +
+                "[PaddleProbe] SetupDiGetClassDevs failed error=" +
                 QString::number(GetLastError()));
             return;
         }
 
         unsigned matchingInterfaces = 0;
+        unsigned paddleCandidates = 0;
         for (DWORD index = 0;; ++index) {
             SP_DEVICE_INTERFACE_DATA interfaceData{};
             interfaceData.cbSize = sizeof(interfaceData);
@@ -163,7 +164,7 @@ namespace
                     &interfaceData)) {
                 if (GetLastError() != ERROR_NO_MORE_ITEMS) {
                     Log::writeLine(
-                        "[NativeHidProbe] SetupDiEnumDeviceInterfaces failed error=" +
+                        "[PaddleProbe] SetupDiEnumDeviceInterfaces failed error=" +
                         QString::number(GetLastError()));
                 }
                 break;
@@ -224,28 +225,32 @@ namespace
                 continue;
 
             ++matchingInterfaces;
-            Log::writeLine(
-                QString(
-                    "[NativeHidProbe] Found Ally HID interface #%1 %2")
-                    .arg(matchingInterfaces)
-                    .arg(InterfaceLabel(path, caps)));
+            if (!IsPaddleCandidate(path, caps))
+                continue;
 
-            if (caps.InputReportByteLength > 0)
-                std::thread(ReaderThread, path, caps).detach();
+            ++paddleCandidates;
+            Log::writeLine(
+                QString("[PaddleProbe] Found candidate #%1 %2")
+                    .arg(paddleCandidates)
+                    .arg(InterfaceLabel(path, caps)));
+            std::thread(PaddleReaderThread, path, caps).detach();
         }
 
         SetupDiDestroyDeviceInfoList(deviceInfo);
         Log::writeLine(
-            "[NativeHidProbe] Enumeration complete. Matching interfaces=" +
-            QString::number(matchingInterfaces));
+            QString(
+                "[PaddleProbe] Enumeration complete. ASUS interfaces=%1 "
+                "paddleCandidates=%2")
+                .arg(matchingInterfaces)
+                .arg(paddleCandidates));
     }
 }
 
-static void StartNativeHidProbe()
+static void StartPaddleProbe()
 {
     if (probeStarted.exchange(true))
         return;
     std::thread(ProbeThread).detach();
 }
 
-Q_COREAPP_STARTUP_FUNCTION(StartNativeHidProbe)
+Q_COREAPP_STARTUP_FUNCTION(StartPaddleProbe)
