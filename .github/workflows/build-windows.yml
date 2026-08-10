@@ -1,0 +1,103 @@
+name: Build Windows
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      SDL_VERSION: 3.4.10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.9.1
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Install SDL
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "SDL3-devel-$env:SDL_VERSION-VC.zip"
+          $extractRoot = Join-Path $env:RUNNER_TEMP "sdl"
+          $url = "https://github.com/libsdl-org/SDL/releases/download/release-$env:SDL_VERSION/SDL3-devel-$env:SDL_VERSION-VC.zip"
+
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $extractRoot -Force
+
+          $sdlRoot = Join-Path $extractRoot "SDL3-$env:SDL_VERSION"
+          if (-not (Test-Path (Join-Path $sdlRoot "include\SDL3\SDL.h"))) {
+            throw "SDL headers were not found at $sdlRoot"
+          }
+
+          "SDL3_ROOT=$sdlRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure WoWpadX
+        shell: pwsh
+        run: |
+          cmake `
+            -S (Join-Path $env:GITHUB_WORKSPACE "WoWpadX") `
+            -B (Join-Path $env:GITHUB_WORKSPACE "build") `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR" `
+            "-DSDL3_ROOT=$env:SDL3_ROOT"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "CMake configuration failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Build WoWpadX
+        shell: pwsh
+        run: |
+          cmake --build (Join-Path $env:GITHUB_WORKSPACE "build") --parallel
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "CMake build failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Stage portable build
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "build") -Recurse -Filter WoWpadX.exe |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "WoWpadX.exe was not produced"
+          }
+
+          $stage = Join-Path $env:GITHUB_WORKSPACE "artifact"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item -Path $exe.FullName -Destination (Join-Path $stage "WoWpadX.exe") -Force
+
+          $sdlDll = Join-Path $env:SDL3_ROOT "lib\x64\SDL3.dll"
+          Copy-Item -Path $sdlDll -Destination (Join-Path $stage "SDL3.dll") -Force
+
+          $deployQt = Join-Path $env:QT_ROOT_DIR "bin\windeployqt.exe"
+          & $deployQt --release --qmldir (Join-Path $env:GITHUB_WORKSPACE "WoWpadX\QML") (Join-Path $stage "WoWpadX.exe")
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "windeployqt failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: WoWpadX-xbox-windows-x64
+          path: artifact
+          if-no-files-found: error

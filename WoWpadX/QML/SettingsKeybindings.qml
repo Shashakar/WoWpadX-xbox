@@ -1,4 +1,4 @@
-﻿import QtQuick.Controls.Material
+import QtQuick.Controls.Material
 import QtQuick 6.2
 import QtQuick.Controls 6.2
 import QtQuick.Layouts 6.2
@@ -21,37 +21,48 @@ Item {
             Label { text: "Controller Settings"; font.pixelSize: 16 }
             Rectangle { height: 1; width: parent.width }
 
-            
-
-                ColumnLayout {
-                    Layout.preferredWidth: parent.width
-                    spacing: 5
-                    Label { text: "Modifier Buttons" }
-                    ComboBox {
-                        Layout.preferredWidth: parent.width - 50
-                        model: [
-                            "Default (L1+L2)",
-                            "Triggers (L2+R2)",
-                            "Reversed (R1+R2)",
-                            "Shoulders (L1+R1)"
-                        ]
-                        currentIndex: AppSettings.modifierStyle
-                        onCurrentIndexChanged: AppSettings.modifierStyle = currentIndex
+            ColumnLayout {
+                Layout.preferredWidth: parent.width
+                spacing: 5
+                Label { text: "Modifier Buttons" }
+                ComboBox {
+                    Layout.preferredWidth: parent.width - 50
+                    model: [
+                        "Default (L1+L2)",
+                        "Triggers (L2+R2)",
+                        "Reversed (R1+R2)",
+                        "Shoulders (L1+R1)",
+                        "Rear Paddles (Armoury Shift/Ctrl)"
+                    ]
+                    currentIndex: AppSettings.modifierStyle
+                    onActivated: function(index) {
+                        AppSettings.customBindings = false
+                        AppSettings.modifierStyle = index
+                        AppSettings.save()
                     }
                 }
 
-                ColumnLayout {
-                    Layout.preferredWidth: parent.width
-                    spacing: 5 
-                    Label { text: "Displayed Icons" }
-                    ComboBox {
-                        enabled: false
-                        Layout.preferredWidth: parent.width - 50
-                        model: ["Auto Detect", "PlayStation", "Xbox"]
-                        currentIndex: AppSettings.buttonStyle
-                        onCurrentIndexChanged: AppSettings.buttonStyle = currentIndex
-                    }
+                Label {
+                    visible: AppSettings.modifierStyle === 4
+                    Layout.preferredWidth: parent.width - 50
+                    wrapMode: Text.Wrap
+                    color: Material.accent
+                    text: "In Armoury Crate, map M1 directly to Left Shift and M2 directly to Left Ctrl. M1+M2 then produces Shift+Ctrl. WoWpadX leaves these keyboard modifiers untouched."
                 }
+            }
+
+            ColumnLayout {
+                Layout.preferredWidth: parent.width
+                spacing: 5
+                Label { text: "Displayed Icons" }
+                ComboBox {
+                    enabled: false
+                    Layout.preferredWidth: parent.width - 50
+                    model: ["Auto Detect", "PlayStation", "Xbox"]
+                    currentIndex: AppSettings.buttonStyle
+                    onCurrentIndexChanged: AppSettings.buttonStyle = currentIndex
+                }
+            }
 
             /*
 
@@ -122,7 +133,6 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 onDoubleClicked: {
-                    // Handle double-click logic here
                 }
             }
 
